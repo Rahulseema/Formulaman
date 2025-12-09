@@ -1,39 +1,20 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from google import genai
 import io # Used for handling in-memory file data
 
-# --- GEMINI CLIENT INITIALIZATION (Placeholder for future use) ---
-
-# IMPORTANT: Store your API key securely in .streamlit/secrets.toml
-# [secrets]
-# GEMINI_API_KEY="YOUR_API_KEY_HERE"
-
-# Initialize the Gemini Client
-try:
-    if "GEMINI_API_KEY" in st.secrets:
-        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-        GEMINI_AVAILABLE = True
+# --- HELPER FUNCTION FOR FILE UPLOAD ---
+# Cached function to read data from CSV or Excel file.
+@st.cache_data
+def load_data(file):
+    """Reads data from CSV or Excel file."""
+    if file.name.endswith('.csv'):
+        # Reset file pointer to beginning for reading
+        file.seek(0)
+        return pd.read_csv(file)
     else:
-        client = None
-        GEMINI_AVAILABLE = False
-except Exception:
-    client = None
-    GEMINI_AVAILABLE = False
-
-# Function to generate content 
-def generate_content_with_gemini(prompt):
-    if client:
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt
-            )
-            return response.text
-        except Exception as e:
-            return f"An error occurred: {e}"
-    return "Gemini client is not initialized or API key is missing."
+        file.seek(0)
+        return pd.read_excel(file)
 
 
 # 1. Page Configuration
@@ -64,20 +45,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.2.0 | E-Commerce Solutions")
-
-
-# --- HELPER FUNCTION FOR FILE UPLOAD ---
-@st.cache_data
-def load_data(file):
-    """Reads data from CSV or Excel file."""
-    if file.name.endswith('.csv'):
-        # Reset file pointer to beginning for reading
-        file.seek(0)
-        return pd.read_csv(file)
-    else:
-        file.seek(0)
-        return pd.read_excel(file)
+st.sidebar.info("v1.3.0 | E-Commerce Solutions (AI-Free)")
 
 
 # 3. Main Content Logic
@@ -87,8 +55,8 @@ if "Listing" in menu:
     st.title("📋 Product Listings")
     st.markdown("Manage your e-commerce catalog and choose your sales channels.")
     
-    # UI: Add Product & AI Generator
-    with st.expander("Add New Product & Generate Description (AI)", expanded=False):
+    # UI: Add Product
+    with st.expander("Add New Product", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
             product_name = st.text_input("Product Name")
@@ -97,23 +65,10 @@ if "Listing" in menu:
             st.selectbox("Category", ["Electronics", "Fashion", "Home", "Beauty"])
             stock_qty = st.number_input("Stock Quantity", min_value=0, step=1)
         
-        features = st.text_area("Key Features (for AI description)", height=100)
+        # Removed AI features related to features/description generation
         
         if st.button("Save Product"):
             st.success(f"Product '{product_name}' saved with {stock_qty} units.")
-
-        if GEMINI_AVAILABLE and st.button("Generate Description using Gemini"):
-            ai_prompt = (
-                f"Generate a professional, concise product description for '{product_name}' "
-                f"which is in the {col2.selectbox('Category', ['Electronics', 'Fashion', 'Home', 'Beauty'], key='ai_cat')}. "
-                f"Key features are: {features}. Keep it under 200 words."
-            )
-            with st.spinner("Gemini is drafting the perfect description..."):
-                generated_text = generate_content_with_gemini(ai_prompt)
-            st.success("Description Generated!")
-            st.code(generated_text)
-        elif not GEMINI_AVAILABLE:
-             st.warning("Connect your Gemini API Key in secrets.toml to enable AI features.")
 
     st.subheader("Top Indian E-commerce Channels")
     st.markdown("---")
@@ -170,7 +125,7 @@ elif "Picklist" in menu:
     st.title("📝 Picklist & Mapping Utility")
     st.markdown("Upload up to **10 picklists** and one master mapping sheet to consolidate items by **Master SKU** and **Quantity**.")
 
-    # KPI Metrics (Retained for visual)
+    # KPI Metrics
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric("Orders to Pick Today", "12", "-2")
     kpi2.metric("Mapping Accuracy", "99.8%", "+0.1%")
@@ -343,6 +298,7 @@ elif "Configuration" in menu:
     st.title("⚙️ Configuration")
     st.toggle("Enable Dark Mode support")
     st.toggle("Receive Email Notifications")
-    st.text_input("API Key")
+    # Removed API Key Input specific to Gemini
+    st.text_input("General System API Key (if needed)")
     if st.button("Save Settings"):
         st.success("Settings saved successfully!")
