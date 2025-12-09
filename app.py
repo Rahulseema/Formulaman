@@ -6,8 +6,7 @@ import io # Used for handling in-memory file data
 
 # --- GEMINI CLIENT INITIALIZATION (Placeholder for future use) ---
 
-# It is best practice to store your API key securely using Streamlit Secrets.
-# Create a folder called .streamlit/ and a file called secrets.toml inside it:
+# IMPORTANT: Store your API key securely in .streamlit/secrets.toml
 # [secrets]
 # GEMINI_API_KEY="YOUR_API_KEY_HERE"
 
@@ -23,7 +22,7 @@ except Exception:
     client = None
     GEMINI_AVAILABLE = False
 
-# Function to generate content (as discussed previously)
+# Function to generate content 
 def generate_content_with_gemini(prompt):
     if client:
         try:
