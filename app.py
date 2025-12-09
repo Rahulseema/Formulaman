@@ -52,39 +52,48 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* Button Styling */
+    /* Enforce Button Styling (Fixes Theme Issues) */
     div.stButton > button {
-        background-color: #2563EB;
-        color: white;
+        background-color: #2563EB !important; /* Force Blue */
+        color: white !important;
         border-radius: 8px;
         border: none;
         padding: 0.5rem 1rem;
         font-weight: 500;
     }
     div.stButton > button:hover {
-        background-color: #1D4ED8;
-        color: white;
+        background-color: #1D4ED8 !important; /* Darker Blue on Hover */
+        color: white !important;
+        border-color: #1D4ED8 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. AUTHENTICATION LOGIC (GATEKEEPER)
+# 2. AUTHENTICATION LOGIC (FIXED)
 # ==========================================
 
-# Initialize Session State for Auth
+# Initialize Session State Variables
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = ""
+
 # Function to check password
 def check_password():
-    if st.session_state["username_input"] == "Rahul" and st.session_state["password_input"] == "Sparsh@2030":
+    # Helper to safely get values from the widget
+    user = st.session_state.get("username_input", "")
+    pwd = st.session_state.get("password_input", "")
+
+    if user == "Rahul" and pwd == "Sparsh@2030":
         st.session_state["authenticated"] = True
+        st.session_state["user_id"] = user # Save username to a permanent variable
     else:
         st.session_state["authenticated"] = False
         st.error("❌ Invalid User ID or Password")
 
-# If NOT authenticated, show Login Screen and STOP execution of the rest of the app
+# If NOT authenticated, show Login Screen and STOP execution
 if not st.session_state["authenticated"]:
     col1, col2, col3 = st.columns([1, 1, 1])
     
@@ -94,14 +103,13 @@ if not st.session_state["authenticated"]:
             st.markdown("<h1 style='text-align: center;'>🏎️ Formula Man</h1>", unsafe_allow_html=True)
             st.markdown("<h3 style='text-align: center;'>Login Required</h3>", unsafe_allow_html=True)
             
+            # Input widgets
             st.text_input("User ID", key="username_input")
             st.text_input("Password", type="password", key="password_input")
             
-            if st.button("Login", on_click=check_password, use_container_width=True):
-                # The logic is handled in the on_click callback
-                pass
+            st.button("Login", on_click=check_password, use_container_width=True)
                 
-    st.stop() # 🛑 THIS STOPS THE REST OF THE CODE FROM LOADING IF NOT LOGGED IN
+    st.stop() # 🛑 STOPS HERE IF NOT LOGGED IN
 
 
 # ==========================================
@@ -238,11 +246,13 @@ with st.sidebar:
     with st.container(border=True):
         st.caption("**System Status**")
         st.success("● Online")
-        st.caption(f"Logged in as: {st.session_state['username_input']}")
+        # Use the persistent 'user_id' variable instead of the widget key
+        st.caption(f"Logged in as: {st.session_state['user_id']}")
         
         # Logout Button
         if st.button("Logout"):
             st.session_state["authenticated"] = False
+            st.session_state["user_id"] = ""
             st.rerun()
 
 # ==========================================
