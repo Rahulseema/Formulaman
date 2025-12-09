@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
+import time
 
 # ==========================================
 # 1. CONFIG & STYLING (MUST BE FIRST)
@@ -67,9 +68,44 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ==========================================
+# 2. AUTHENTICATION LOGIC (GATEKEEPER)
+# ==========================================
+
+# Initialize Session State for Auth
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# Function to check password
+def check_password():
+    if st.session_state["username_input"] == "Rahul" and st.session_state["password_input"] == "Sparsh@2030":
+        st.session_state["authenticated"] = True
+    else:
+        st.session_state["authenticated"] = False
+        st.error("❌ Invalid User ID or Password")
+
+# If NOT authenticated, show Login Screen and STOP execution of the rest of the app
+if not st.session_state["authenticated"]:
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<h1 style='text-align: center;'>🏎️ Formula Man</h1>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center;'>Login Required</h3>", unsafe_allow_html=True)
+            
+            st.text_input("User ID", key="username_input")
+            st.text_input("Password", type="password", key="password_input")
+            
+            if st.button("Login", on_click=check_password, use_container_width=True):
+                # The logic is handled in the on_click callback
+                pass
+                
+    st.stop() # 🛑 THIS STOPS THE REST OF THE CODE FROM LOADING IF NOT LOGGED IN
+
 
 # ==========================================
-# 2. CONSTANTS & TEMPLATES
+# 3. CONSTANTS & TEMPLATES (LOADS AFTER LOGIN)
 # ==========================================
 COL_GSTIN = 'Seller GSTIN'
 COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' 
@@ -83,7 +119,7 @@ FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title
 Mandatory,,,,,,,,,,,,,Mandatory,,,,,,,,,,,Mandatory,,,,,,,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,,,,,,,,,,,,Mandatory,,,,,,,,,,,"""
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
 @st.cache_data
 def load_data(file):
@@ -177,7 +213,7 @@ def process_meesho_data(tcs_sales_file, tcs_sales_return_file):
     return final_summary
 
 # ==========================================
-# 4. SIDEBAR NAVIGATION
+# 5. SIDEBAR NAVIGATION
 # ==========================================
 with st.sidebar:
     st.markdown("<h1 style='text-align: center;'>🏎️</h1>", unsafe_allow_html=True)
@@ -202,10 +238,15 @@ with st.sidebar:
     with st.container(border=True):
         st.caption("**System Status**")
         st.success("● Online")
-        st.caption("v1.8.5 | Updated")
+        st.caption(f"Logged in as: {st.session_state['username_input']}")
+        
+        # Logout Button
+        if st.button("Logout"):
+            st.session_state["authenticated"] = False
+            st.rerun()
 
 # ==========================================
-# 5. MAIN CONTENT LOGIC
+# 6. MAIN CONTENT LOGIC
 # ==========================================
 
 # --- LISTING ---
@@ -285,7 +326,6 @@ elif "Picklist" in menu:
             st.subheader("3. Action")
             if len(picklist_files) > 0 and mapping_file:
                 if st.button("🚀 Run Consolidation", use_container_width=True):
-                    # ... [Keeping Logic Same as Original] ...
                     with st.spinner("Processing..."):
                         try:
                             MAP_PICK_SKU = 'Picklist SKU'
