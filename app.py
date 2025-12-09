@@ -104,7 +104,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.8.3 | E-Commerce Solutions (5-Letter State Code Fix)")
+st.sidebar.info("v1.8.4 | E-Commerce Solutions (Updated Meesho GSTR-1 File Names)")
 
 
 # 3. Main Content Logic
@@ -491,23 +491,23 @@ elif "Reporting" in menu:
                  st.info("Please upload a file and click 'Process Data for GSTR-1' to generate the report.")
 
 
-        # --- Meesho Tab ---
+        # --- Meesho Tab (UPDATED) ---
         with sub_tab3:
             st.header("Meesho GSTR-1 Data")
             st.markdown("All three files are required to accurately calculate net sales and TCS.")
             
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
-                st.warning("Forward Shipping File (Mandatory)")
-                st.file_uploader("Upload Meesho Forward Shipping File", type=['csv', 'xlsx'], key='meesho_forward')
+                st.warning("TCS Sales Report (Mandatory)")
+                st.file_uploader("Upload **tcs_sales** File", type=['csv', 'xlsx'], key='meesho_tcs_sales')
             
             with col_m2:
-                st.warning("Reverse Shipping/RTO File (Mandatory)")
-                st.file_uploader("Upload Meesho Reverse Shipping File", type=['csv', 'xlsx'], key='meesho_reverse')
+                st.warning("TCS Sales Return Report (Mandatory)")
+                st.file_uploader("Upload **tcs_sales_return** File", type=['csv', 'xlsx'], key='meesho_tcs_sales_return')
                 
             with col_m3:
-                st.warning("TCS Report (Mandatory)")
-                st.file_uploader("Upload Meesho TCS Report", type=['csv', 'xlsx'], key='meesho_tcs')
+                st.warning("Tax Invoice Details (Mandatory)")
+                st.file_uploader("Upload **Tax_invoice_details** File", type=['csv', 'xlsx'], key='meesho_tax_invoice_details')
                 
             if st.button("Generate Meesho GSTR-1 Data", key='gen_meesho'):
                 st.success("Meesho data processing initiated. Final GSTR-1 values calculated.")
