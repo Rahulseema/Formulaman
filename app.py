@@ -62,6 +62,7 @@ def process_flipkart_data(df_raw):
     
     # 4. Create State Name Mapping: Map the 4-char group to a representative full state name.
     # We use the first encountered state name within that group as the representative.
+    # Exclude 'NAN' entries from mapping
     state_mapping_df = df[df['Clean_Billing_State'] != 'NAN'].groupby('State_Group').agg(
         Representative_State_Name=('Clean_Billing_State', lambda x: x.iloc[0])
     ).reset_index()
@@ -100,7 +101,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.8.0 | E-Commerce Solutions (Full State Name Logic)")
+st.sidebar.info("v1.8.1 | E-Commerce Solutions (Bugfix)")
 
 
 # 3. Main Content Logic
@@ -392,9 +393,17 @@ elif "Reporting" in menu:
                         st.session_state['state_name_map'] = {}
                 else:
                     st.warning("Please upload the Flipkart Sales Data file to proceed.")
+            
+            # --- SESSION STATE INITIALIZATION AND ACCESS ---
+            # Initialize session state variables if they don't exist to prevent KeyError
+            if 'flipkart_gstr1_df' not in st.session_state:
+                st.session_state['flipkart_gstr1_df'] = None
+            if 'state_name_map' not in st.session_state:
+                st.session_state['state_name_map'] = {}
+
 
             # --- Filtering and Display Logic (Runs if processed data is available) ---
-            if 'flipkart_gstr1_df' in st.session_state and st.session_state['flipkart_gstr1_df'] is not None:
+            if st.session_state['flipkart_gstr1_df'] is not None:
                 
                 df_processed = st.session_state['flipkart_gstr1_df']
                 state_name_map = st.session_state['state_name_map']
@@ -403,10 +412,12 @@ elif "Reporting" in menu:
                 st.subheader("Filter and Aggregated Totals")
                 
                 # 1. Get unique GSTINs
-                unique_gstins = df_processed[COL_GSTIN].astype(str).unique().tolist()
+                # Filter out potential non-string/null values like '0.0' or 'nan' before display
+                unique_gstins = df_processed[COL_GSTIN].astype(str).unique()
+                valid_gstins = sorted([g for g in unique_gstins if g not in ('0.0', 'nan', '0')])
                 
                 # Sort them and add 'ALL' as the first option
-                gstin_options = ['ALL'] + sorted(g for g in unique_gstins if g != '0.0' and g != 'nan')
+                gstin_options = ['ALL'] + valid_gstins
                 
                 # 2. GSTIN Dropdown
                 selected_gstin = st.selectbox(
@@ -419,7 +430,7 @@ elif "Reporting" in menu:
                 if selected_gstin == 'ALL':
                     filtered_df = df_processed.copy()
                 else:
-                    # Filter based on the selected GSTIN
+                    # Filter based on the selected GSTIN (must match the string representation)
                     filtered_df = df_processed[df_processed[COL_GSTIN].astype(str) == selected_gstin].copy()
                     
                 # 4. Final Aggregation on Filtered Data (Group by the 4-char code)
