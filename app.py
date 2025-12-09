@@ -3,6 +3,11 @@ import pandas as pd
 import plotly.express as px
 import io 
 
+# Define the two-line header/mandatory row for the Flipkart GSTR-1 template
+# This content is taken exactly from the header and mandatory rows of your attached file.
+FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title/Description,FSN,SKU,HSN Code,Event Type,Event Sub Type,Order Type,Fulfilment Type,Order Date,Order Approval Date,Item Quantity,Order Shipped From (State),Warehouse ID,Price before discount,Total Discount,Seller Share,Bank Offer Offer Share,Price after discount (Price before discount-Total discount),Shipping Charges,Final Invoice Amount (Price after discount+Shipping Charges),Type of tax,Taxable Value (Final Invoice Amount -Taxes),CST Rate,CST Amount,VAT Rate,VAT Amount,Luxury Cess Rate,Luxury Cess Amount,IGST Rate,IGST Amount,CGST Rate,CGST Amount,SGST Rate (or UTGST as applicable),SGST Amount (Or UTGST as applicable),TCS IGST Rate,TCS IGST Amount,TCS CGST Rate,TCS CGST Amount,TCS SGST Rate,TCS SGST Amount,Total TCS Deducted,Buyer Invoice ID,Buyer Invoice Date,Buyer Invoice Amount,Customer's Billing Pincode,Customer's Billing State,Customer's Delivery Pincode,Customer's Delivery State,Usual Price,Is Shopsy Order?,TDS Rate,TDS Amount,IRN,Business Name,Business GST Number,Beneficiary Name,IMEI
+Mandatory,,,,,,,,,,,,,Mandatory,,,,,,,,,,,Mandatory,,,,,,,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,,,,,,,,,,,,Mandatory,,,,,,,,,,,"""
+
 # --- HELPER FUNCTION FOR FILE UPLOAD ---
 # Cached function to read data from CSV or Excel file.
 @st.cache_data
@@ -11,10 +16,11 @@ def load_data(file):
     if file.name.endswith('.csv'):
         # Reset file pointer to beginning for reading
         file.seek(0)
-        return pd.read_csv(file)
+        # Skip the second row which contains only "Mandatory" text if reading as DataFrame
+        return pd.read_csv(file, skiprows=[1])
     else:
         file.seek(0)
-        return pd.read_excel(file)
+        return pd.read_excel(file, skiprows=[1])
 
 
 # 1. Page Configuration
@@ -45,7 +51,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.3.0 | E-Commerce Solutions (GST Ready)")
+st.sidebar.info("v1.4.0 | E-Commerce Solutions (GST Ready)")
 
 
 # 3. Main Content Logic
@@ -132,14 +138,10 @@ elif "Picklist" in menu:
     st.subheader("1. Upload Files (CSV or Excel)")
     
     # --- File Upload Columns ---
-    
-    # Column for Picklists
     with st.container(border=True):
         st.subheader("📦 Picklists Upload (Up to 10 Files)")
         
         picklist_files = []
-        
-        # Use two columns for better layout
         cols = st.columns(2)
         for i in range(10):
             with cols[i % 2]:
@@ -174,23 +176,19 @@ elif "Picklist" in menu:
         if st.button("🚀 Run Consolidation and Mapping"):
             with st.spinner("Processing files and merging SKUs..."):
                 try:
-                    # --- A. Read Mapping Sheet ---
                     MAP_PICK_SKU = 'Picklist SKU'
                     MASTER_SKU = 'Master SKU'
                     PICK_QTY = 'Quantity'
                     
                     mapping_df = load_data(mapping_file)
                     
-                    # 1. Validate Mapping Sheet Columns
                     if MAP_PICK_SKU not in mapping_df.columns or MASTER_SKU not in mapping_df.columns:
                         st.error(f"Mapping sheet must contain columns: '{MAP_PICK_SKU}' and '{MASTER_SKU}'. Please check your header names.")
                         st.stop()
                     
-                    # --- B. Process and Merge Picklists ---
                     all_picklists = []
                     for file in picklist_files:
                         df = load_data(file)
-                        # 2. Validate Picklist Columns
                         if MAP_PICK_SKU not in df.columns or PICK_QTY not in df.columns:
                             st.warning(f"Skipping file {file.name}: Missing required columns '{MAP_PICK_SKU}' or '{PICK_QTY}'.")
                             continue
@@ -200,14 +198,9 @@ elif "Picklist" in menu:
                         st.error("No valid picklist files found to process. Check column headers.")
                         st.stop()
                     
-                    # Concatenate all valid picklists
                     merged_picklists = pd.concat(all_picklists, ignore_index=True)
-                    
-                    # --- C. Consolidate Quantities in Picklists ---
                     consolidated_picklists = merged_picklists.groupby([MAP_PICK_SKU])[PICK_QTY].sum().reset_index()
                     
-                    # --- D. Final Merge and Aggregation ---
-                    # Merge consolidated picklists with the master mapping sheet
                     final_merge = pd.merge(
                         consolidated_picklists,
                         mapping_df[[MAP_PICK_SKU, MASTER_SKU]], 
@@ -215,14 +208,12 @@ elif "Picklist" in menu:
                         how='left'
                     )
                     
-                    # Aggregate by the Master SKU and sum the quantities
                     final_output = final_merge.groupby([MASTER_SKU])[PICK_QTY].sum().reset_index()
                     final_output.rename(columns={PICK_QTY: 'Total Required Quantity'}, inplace=True)
 
                     st.success("✅ Consolidation Complete! Final Master Picklist created.")
                     st.dataframe(final_output, use_container_width=True)
 
-                    # --- E. Download Option ---
                     csv = final_output.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="⬇️ Download Final Master Picklist (CSV)",
@@ -319,16 +310,73 @@ elif "Reporting" in menu:
             if st.button("Generate Amazon GSTR-1 Data", key='gen_amazon'):
                 st.success("Amazon data processing initiated. Summary will appear here.")
         
-        # --- Flipkart Tab ---
+        # --- Flipkart Tab (UPDATED) ---
         with sub_tab2:
             st.header("Flipkart GSTR-1 Data")
-            st.markdown("Upload the main sales data file for consolidation.")
+            st.markdown("Download the template, fill with your sales data, and upload the file below.")
             
-            st.info("Sales Data Upload (Mandatory)")
-            st.file_uploader("Upload Flipkart Sales Data (CSV/Excel)", type=['csv', 'xlsx'], key='flipkart_sales')
+            # Download Button for the Template
+            st.download_button(
+                label="⬇️ Download Flipkart Sales Template (CSV)",
+                data=FLIPKART_TEMPLATE_CONTENT.encode('utf-8'),
+                file_name='Flipkart_GSTR1_Template.csv',
+                mime='text/csv',
+            )
+
+            # File Uploader
+            flipkart_sales_file = st.file_uploader("Upload Flipkart Sales Data (CSV/Excel)", type=['csv', 'xlsx'], key='flipkart_sales')
             
             if st.button("Generate Flipkart GSTR-1 Data", key='gen_flipkart'):
-                st.success("Flipkart data processing initiated. Summary will appear here.")
+                if flipkart_sales_file:
+                    try:
+                        # Load data, skipping the "Mandatory" row (row index 1)
+                        df_flipkart = load_data(flipkart_sales_file)
+                        st.info("File uploaded successfully. Starting GST calculation logic...")
+                        
+                        # --- START OF GST CALCULATION LOGIC ---
+                        
+                        # Data Cleaning/Preprocessing (Example: Convert GST columns to numeric)
+                        tax_cols = ['Taxable Value (Final Invoice Amount -Taxes)', 'IGST Amount', 'CGST Amount', 'SGST Amount (Or UTGST as applicable)']
+                        for col in tax_cols:
+                            # Attempt to convert to numeric, coercing errors to NaN
+                            df_flipkart[col] = pd.to_numeric(df_flipkart[col], errors='coerce')
+                            
+                        df_flipkart.fillna(0, inplace=True)
+
+                        # Determine B2C vs B2B based on 'Business GST Number'
+                        df_flipkart['Transaction_Type'] = df_flipkart['Business GST Number'].apply(
+                            lambda x: 'B2B' if pd.notna(x) and x not in ['NA', ''] else 'B2C'
+                        )
+                        
+                        # Grouping for B2C Summary (Intra/Inter-state depends on Buyer/Seller state)
+                        b2c_summary = df_flipkart[df_flipkart['Transaction_Type'] == 'B2C'].groupby(
+                            'Customer\'s Delivery State'
+                        )[tax_cols].sum().reset_index()
+
+                        # Grouping for B2B Summary (grouped by GSTIN)
+                        b2b_summary = df_flipkart[df_flipkart['Transaction_Type'] == 'B2B'].groupby(
+                            'Business GST Number'
+                        )[tax_cols].sum().reset_index()
+
+
+                        st.subheader("Flipkart GSTR-1 Summary")
+                        
+                        st.markdown("#### B2C Summary by State")
+                        st.dataframe(b2c_summary, use_container_width=True)
+
+                        st.markdown("#### B2B Summary by Buyer GSTIN")
+                        st.dataframe(b2b_summary, use_container_width=True)
+                        
+                        st.success("GSTR-1 data successfully summarized for B2C and B2B transactions.")
+                        
+                        # --- END OF LOGIC ---
+                        
+                    except Exception as e:
+                        st.error(f"Error processing Flipkart file: {e}")
+                        st.warning("Please ensure your uploaded file strictly follows the format of the downloaded template.")
+                else:
+                    st.warning("Please upload the Flipkart Sales Data file to proceed.")
+
 
         # --- Meesho Tab ---
         with sub_tab3:
@@ -380,10 +428,46 @@ elif "Reporting" in menu:
     with general_reports_tab:
         st.subheader("Download General Performance Reports")
         st.write("Download your monthly performance reports.")
-        st.download_button("Download CSV", data="Sample Data", file_name="report.csv")
+        st.download_button("Download CSV", data="Sample Data".encode('utf-8'), file_name="report.csv")
+
+# --- SALES ---
+elif "Sales" in menu:
+    st.title("📈 Sales Overview")
+    data = pd.DataFrame({'Date': pd.date_range(start='1/1/2024', periods=10),'Revenue': [100, 150, 120, 200, 250, 220, 300, 280, 350, 400]})
+    fig = px.line(data, x='Date', y='Revenue', title="Daily Revenue Trends")
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- MARKETING ---
+elif "Marketing" in menu:
+    st.title("📣 Marketing Campaigns")
+    st.info("No active campaigns running.")
+    st.subheader("Create Campaign")
+    st.text_input("Campaign Title")
+    st.slider("Budget Allocation ($)", 100, 10000, 1000)
+    st.button("Launch Campaign")
+
+# --- FINANCIAL ---
+elif "Financial" in menu:
+    st.title("💰 Financials")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Revenue", "$52,000", "+12%")
+    col2.metric("Net Profit", "$14,500", "-2%")
+    col3.metric("Expenses", "$37,500", "+5%")
+
+# --- INVENTORY ---
+elif "Inventory" in menu:
+    st.title("📦 Inventory Management")
+    st.warning("⚠️ Low stock alert: 3 items below threshold.")
+    inventory_data = pd.DataFrame({
+        "Item ID": [101, 102, 103, 104],
+        "Name": ["Wireless Mouse", "Keyboard", "Monitor", "HDMI Cable"],
+        "Stock": [5, 120, 45, 2],
+        "Status": ["Low", "Good", "Good", "Critical"]
+    })
+    st.dataframe(inventory_data, use_container_width=True)
 
 # --- CONFIGURATION ---
-elif "Configration" in menu:
+elif "Configuration" in menu:
     st.title("⚙️ Configuration")
     st.toggle("Enable Dark Mode support")
     st.toggle("Receive Email Notifications")
