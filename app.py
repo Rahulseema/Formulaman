@@ -50,7 +50,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.5.0 | E-Commerce Solutions (GST Logic Updated)")
+st.sidebar.info("v1.6.0 | E-Commerce Solutions (GST Logic Updated)")
 
 
 # 3. Main Content Logic
@@ -312,7 +312,7 @@ elif "Reporting" in menu:
         # --- Flipkart Tab (UPDATED LOGIC) ---
         with sub_tab2:
             st.header("Flipkart GSTR-1 Data")
-            st.markdown("Download the template, fill with your sales data, and upload the file below.")
+            st.markdown("Download the template, fill with your sales data, and upload the file below. Data will be grouped by the **first 4 characters of the Billing State**.")
             
             # Download Button for the Template
             st.download_button(
@@ -329,7 +329,7 @@ elif "Reporting" in menu:
                 if flipkart_sales_file:
                     try:
                         df_flipkart = load_data(flipkart_sales_file)
-                        st.info("File uploaded successfully. Applying GSTR-1 calculation logic...")
+                        st.info("File uploaded successfully. Applying GSTR-1 calculation and grouping logic...")
                         
                         # 1. Define required columns
                         COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' # Y
@@ -350,26 +350,31 @@ elif "Reporting" in menu:
                         # 3. Conditional Quantity Sign: If Taxable Value is negative, Item Quantity must be negative.
                         negative_tax_mask = df_flipkart[COL_TAXABLE_VALUE] < 0
                         df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY] = (
-                            df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY] * -1
+                            df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY].abs() * -1
                         )
+                        # Ensure positive quantities remain positive if the value was negative due to an error, we correct it with .abs()
+
+                        # 4. Create Grouping Column (First 4 characters)
+                        # Handle potential NaN or non-string values by coercing to string before slicing
+                        df_flipkart['State_Group'] = df_flipkart[COL_BILLING_STATE].astype(str).str[:4]
                         
-                        # 4. Final Aggregation by Customer's Billing State (Col AW)
+                        # 5. Final Aggregation by State_Group
                         final_gstr1_summary = df_flipkart.groupby(
-                            COL_BILLING_STATE
+                            'State_Group'
                         ).agg(
-                            # Sum the four requested columns
+                            # Sum the four requested tax columns
                             Taxable_Value_Total=(COL_TAXABLE_VALUE, 'sum'),
                             IGST_Total=(COL_IGST, 'sum'),
                             CGST_Total=(COL_CGST, 'sum'),
                             SGST_UTGST_Total=(COL_SGST, 'sum'),
                             
-                            # Also include the adjusted quantity for completeness
+                            # Include the adjusted quantity
                             Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum')
                         ).reset_index()
                         
-                        final_gstr1_summary.rename(columns={COL_BILLING_STATE: 'Customer Billing State'}, inplace=True)
+                        final_gstr1_summary.rename(columns={'State_Group': 'Customer Billing State Group (First 4 Chars)'}, inplace=True)
 
-                        st.success("✅ GSTR-1 Data Aggregation Complete! Summary created by Billing State.")
+                        st.success("✅ GSTR-1 Data Aggregation Complete! Summary created by Billing State Group.")
                         
                         st.subheader("Flipkart Consolidated GSTR-1 Summary")
                         st.dataframe(final_gstr1_summary, use_container_width=True)
@@ -379,7 +384,7 @@ elif "Reporting" in menu:
                         st.download_button(
                             label="⬇️ Download GSTR-1 Summary (CSV)",
                             data=csv_output,
-                            file_name='flipkart_gstr1_summary.csv',
+                            file_name='flipkart_gstr1_summary_grouped.csv',
                             mime='text/csv',
                         )
                         
