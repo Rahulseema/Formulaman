@@ -37,6 +37,9 @@ def process_flipkart_data(df_raw):
     """
     Cleans, converts types, applies conditional quantity sign logic, 
     creates the state grouping column, and generates a state name map.
+    The grouping is based on the first 4 uppercase characters, but the display 
+    name is the original name from the sheet.
+    
     Returns: DataFrame, State_Name_Map (dict)
     """
     df = df_raw.copy()
@@ -56,15 +59,16 @@ def process_flipkart_data(df_raw):
     )
 
     # 3. Create Grouping Column (First 4 characters)
-    # Ensure all state names are consistently formatted (strip spaces, uppercase) before slicing
-    df['Clean_Billing_State'] = df[COL_BILLING_STATE].astype(str).str.strip().str.upper()
-    df['State_Group'] = df['Clean_Billing_State'].str[:4]
+    # Ensure all state names are consistently formatted (strip spaces, uppercase) before slicing for GROUPING
+    df['Clean_Billing_State_Upper'] = df[COL_BILLING_STATE].astype(str).str.strip().str.upper()
+    df['State_Group'] = df['Clean_Billing_State_Upper'].str[:4]
     
     # 4. Create State Name Mapping: Map the 4-char group to a representative full state name.
-    # We use the first encountered state name within that group as the representative.
+    # We use the first encountered state name (in its original casing: COL_BILLING_STATE) 
+    # within that group as the representative for display.
     # Exclude 'NAN' entries from mapping
-    state_mapping_df = df[df['Clean_Billing_State'] != 'NAN'].groupby('State_Group').agg(
-        Representative_State_Name=('Clean_Billing_State', lambda x: x.iloc[0])
+    state_mapping_df = df[df['Clean_Billing_State_Upper'] != 'NAN'].groupby('State_Group').agg(
+        Representative_State_Name=(COL_BILLING_STATE, lambda x: x.iloc[0]) # <<< Uses original casing from the uploaded sheet
     ).reset_index()
 
     # Create a dictionary for mapping
@@ -101,7 +105,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.8.1 | E-Commerce Solutions (Bugfix)")
+st.sidebar.info("v1.8.2 | E-Commerce Solutions (Original State Name Fix)")
 
 
 # 3. Main Content Logic
@@ -444,7 +448,7 @@ elif "Reporting" in menu:
                     Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum') # Item Qty based on earlier logic
                 ).reset_index()
                 
-                # 5. Map the 4-char group to the Representative Full State Name
+                # 5. Map the 4-char group to the Representative Full State Name (Original Casing)
                 final_gstr1_summary['Customer Billing State'] = final_gstr1_summary['State_Group'].map(state_name_map)
                 
                 # Drop the temporary grouping column and reorder columns
@@ -471,7 +475,7 @@ elif "Reporting" in menu:
                 kpi_cols[3].metric("Total SGST/UTGST", f"₹ {total_sgst:,.2f}")
                 
                 st.subheader(f"GSTR-1 Summary for {selected_gstin}")
-                st.markdown("*(States are grouped by the first 4 characters for consolidation, and the full state name from the data is shown.)*")
+                st.markdown("*(States are grouped by the first 4 characters for consolidation, and the original state name from the data is shown.)*")
                 st.dataframe(final_gstr1_summary, use_container_width=True)
                 
                 # 7. Download button for the resulting summary
