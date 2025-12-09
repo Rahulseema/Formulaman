@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io # Used for handling in-memory file data
+import io 
 
 # --- HELPER FUNCTION FOR FILE UPLOAD ---
 # Cached function to read data from CSV or Excel file.
@@ -45,7 +45,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.3.0 | E-Commerce Solutions (AI-Free)")
+st.sidebar.info("v1.3.0 | E-Commerce Solutions (GST Ready)")
 
 
 # 3. Main Content Logic
@@ -64,8 +64,6 @@ if "Listing" in menu:
         with col2:
             st.selectbox("Category", ["Electronics", "Fashion", "Home", "Beauty"])
             stock_qty = st.number_input("Stock Quantity", min_value=0, step=1)
-        
-        # Removed AI features related to features/description generation
         
         if st.button("Save Product"):
             st.success(f"Product '{product_name}' saved with {stock_qty} units.")
@@ -289,16 +287,106 @@ elif "Inventory" in menu:
 
 # --- REPORTING ---
 elif "Reporting" in menu:
-    st.title("📑 Reports")
-    st.write("Download your monthly performance reports.")
-    st.download_button("Download CSV", data="Sample Data", file_name="report.csv")
+    st.title("📑 GST and Financial Reporting")
+    st.markdown("Generate and prepare your mandatory GST returns using data uploaded from various e-commerce channels.")
+
+    # Main Tabs
+    gstr1_tab, gstr3b_tab, general_reports_tab = st.tabs(["📊 GSTR-1 Preparation", "📈 GSTR-3B Summary", "📄 General Reports"])
+
+    # 1. GSTR-1 Preparation Tab
+    with gstr1_tab:
+        st.subheader("GSTR-1 Data Consolidation by Marketplace")
+        
+        # Sub Tabs for Marketplaces (6 Mandatory)
+        sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5, sub_tab6 = st.tabs([
+            "🛒 Amazon", "🛍️ Flipkart", "🤝 Meesho", "👗 Myntra", "🍎 JioMart", "👠 Ajio"
+        ])
+        
+        # --- Amazon Tab ---
+        with sub_tab1:
+            st.header("Amazon GSTR-1 Data")
+            st.markdown("Upload files to generate B2C and B2B summary reports.")
+            
+            col_a1, col_a2 = st.columns(2)
+            with col_a1:
+                st.info("B2C MTR Upload (Optional)")
+                st.file_uploader("Upload Amazon B2C MTR (CSV/Excel)", type=['csv', 'xlsx'], key='amazon_b2c')
+            
+            with col_a2:
+                st.info("B2B MTR Upload (Optional)")
+                st.file_uploader("Upload Amazon B2B MTR (CSV/Excel)", type=['csv', 'xlsx'], key='amazon_b2b')
+
+            if st.button("Generate Amazon GSTR-1 Data", key='gen_amazon'):
+                st.success("Amazon data processing initiated. Summary will appear here.")
+        
+        # --- Flipkart Tab ---
+        with sub_tab2:
+            st.header("Flipkart GSTR-1 Data")
+            st.markdown("Upload the main sales data file for consolidation.")
+            
+            st.info("Sales Data Upload (Mandatory)")
+            st.file_uploader("Upload Flipkart Sales Data (CSV/Excel)", type=['csv', 'xlsx'], key='flipkart_sales')
+            
+            if st.button("Generate Flipkart GSTR-1 Data", key='gen_flipkart'):
+                st.success("Flipkart data processing initiated. Summary will appear here.")
+
+        # --- Meesho Tab ---
+        with sub_tab3:
+            st.header("Meesho GSTR-1 Data")
+            st.markdown("All three files are required to accurately calculate net sales and TCS.")
+            
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                st.warning("Forward Shipping File (Mandatory)")
+                st.file_uploader("Upload Meesho Forward Shipping File", type=['csv', 'xlsx'], key='meesho_forward')
+            
+            with col_m2:
+                st.warning("Reverse Shipping/RTO File (Mandatory)")
+                st.file_uploader("Upload Meesho Reverse Shipping File", type=['csv', 'xlsx'], key='meesho_reverse')
+                
+            with col_m3:
+                st.warning("TCS Report (Mandatory)")
+                st.file_uploader("Upload Meesho TCS Report", type=['csv', 'xlsx'], key='meesho_tcs')
+                
+            if st.button("Generate Meesho GSTR-1 Data", key='gen_meesho'):
+                st.success("Meesho data processing initiated. Final GSTR-1 values calculated.")
+
+        # --- Myntra Tab ---
+        with sub_tab4:
+            st.header("Myntra GSTR-1 Data")
+            st.info("Work in Progress / Coming Soon.")
+            st.markdown("Myntra data integration and reporting features will be added in the next release.")
+            
+        # --- JioMart Tab ---
+        with sub_tab5:
+            st.header("JioMart GSTR-1 Data")
+            st.info("Work in Progress / Coming Soon.")
+            st.markdown("JioMart data integration and reporting features will be added in the next release.")
+            
+        # --- Ajio Tab ---
+        with sub_tab6:
+            st.header("Ajio GSTR-1 Data")
+            st.info("Work in Progress / Coming Soon.")
+            st.markdown("Ajio data integration and reporting features will be added in the next release.")
+
+
+    # 2. GSTR-3B Summary Tab
+    with gstr3b_tab:
+        st.subheader("GSTR-3B Input Tax Credit (ITC) Summary")
+        st.markdown("This tab will summarize your consolidated GSTR-1 data and Purchase Register data to help file GSTR-3B.")
+        st.info("Work in Progress / Coming Soon.")
+        
+    # 3. General Reports Tab
+    with general_reports_tab:
+        st.subheader("Download General Performance Reports")
+        st.write("Download your monthly performance reports.")
+        st.download_button("Download CSV", data="Sample Data", file_name="report.csv")
 
 # --- CONFIGURATION ---
-elif "Configuration" in menu:
+elif "Configration" in menu:
     st.title("⚙️ Configuration")
     st.toggle("Enable Dark Mode support")
     st.toggle("Receive Email Notifications")
-    # Removed API Key Input specific to Gemini
     st.text_input("General System API Key (if needed)")
     if st.button("Save Settings"):
         st.success("Settings saved successfully!")
