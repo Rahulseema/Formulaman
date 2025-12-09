@@ -209,15 +209,27 @@ INDIAN_STATE_MAPPING = {
 }
 
 # ==========================================
-# 4. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS (FIXED ENCODING)
 # ==========================================
 @st.cache_data
 def load_data(file):
-    """Loads CSV/Excel. If file is None, returns empty DF."""
+    """Loads CSV/Excel with error handling for encodings."""
     if file is None: return None
     file.seek(0)
+    
     if file.name.endswith('.csv'):
-        return pd.read_csv(file, skiprows=[1])
+        # Try default UTF-8 first
+        try:
+            return pd.read_csv(file, skiprows=[1])
+        except UnicodeDecodeError:
+            # If failed, try Latin-1 (Common for Excel CSVs)
+            file.seek(0)
+            return pd.read_csv(file, skiprows=[1], encoding='ISO-8859-1')
+        except Exception:
+            # Last resort
+            file.seek(0)
+            return pd.read_csv(file, skiprows=[1], encoding='cp1252')
+            
     else:
         return pd.read_excel(file, skiprows=[1])
 
@@ -227,7 +239,8 @@ def consolidate_files(file_list):
     for f in file_list:
         if f is not None:
             df = load_data(f)
-            dfs.append(df)
+            if df is not None:
+                dfs.append(df)
     if not dfs:
         return None
     return pd.concat(dfs, ignore_index=True)
