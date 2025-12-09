@@ -54,7 +54,7 @@ menu = st.sidebar.radio(
     "Go to:",
     [
         "📋 Listing",
-        "📝 Picklist",   # Picklist added here
+        "📝 Picklist",
         "📈 Sales", 
         "📣 Marketing", 
         "💰 Financial", 
@@ -166,7 +166,6 @@ if "Listing" in menu:
         st.markdown("**Key for Sellers:** Appeals to style-conscious youth. Good for trendy, fresh collections and fast-moving fashion inventory.")
         st.link_button("Ajio Supplier Information", "https://www.ajio.com/s/supplier")
 
----
 # --- PICKLIST ---
 elif "Picklist" in menu:
     st.title("📝 Picklist & Mapping Utility")
@@ -286,7 +285,6 @@ elif "Picklist" in menu:
     else:
         st.info("Please upload files above to run the consolidation utility.")
 
----
 # --- SALES ---
 elif "Sales" in menu:
     st.title("📈 Sales Overview")
@@ -301,7 +299,6 @@ elif "Sales" in menu:
     fig = px.line(data, x='Date', y='Revenue', title="Daily Revenue Trends")
     st.plotly_chart(fig, use_container_width=True)
 
----
 # --- MARKETING ---
 elif "Marketing" in menu:
     st.title("📣 Marketing Campaigns")
@@ -312,7 +309,6 @@ elif "Marketing" in menu:
     st.slider("Budget Allocation ($)", 100, 10000, 1000)
     st.button("Launch Campaign")
 
----
 # --- FINANCIAL ---
 elif "Financial" in menu:
     st.title("💰 Financials")
@@ -323,7 +319,6 @@ elif "Financial" in menu:
     col2.metric("Net Profit", "$14,500", "-2%")
     col3.metric("Expenses", "$37,500", "+5%")
 
----
 # --- INVENTORY ---
 elif "Inventory" in menu:
     st.title("📦 Inventory Management")
@@ -338,14 +333,12 @@ elif "Inventory" in menu:
     })
     st.dataframe(inventory_data, use_container_width=True)
 
----
 # --- REPORTING ---
 elif "Reporting" in menu:
     st.title("📑 Reports")
     st.write("Download your monthly performance reports.")
     st.download_button("Download CSV", data="Sample Data", file_name="report.csv")
 
----
 # --- CONFIGURATION ---
 elif "Configuration" in menu:
     st.title("⚙️ Configuration")
