@@ -3,6 +3,16 @@ import pandas as pd
 import plotly.express as px
 import io 
 
+# Define constants for column names
+COL_GSTIN = 'Seller GSTIN'
+COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' # Y
+COL_ITEM_QUANTITY = 'Item Quantity' # N
+COL_IGST = 'IGST Amount' # AF
+COL_CGST = 'CGST Amount' # AI
+COL_SGST = 'SGST Amount (Or UTGST as applicable)' # AK
+COL_BILLING_STATE = "Customer's Billing State" # AW
+
+
 # Define the two-line header/mandatory row for the Flipkart GSTR-1 template
 FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title/Description,FSN,SKU,HSN Code,Event Type,Event Sub Type,Order Type,Fulfilment Type,Order Date,Order Approval Date,Item Quantity,Order Shipped From (State),Warehouse ID,Price before discount,Total Discount,Seller Share,Bank Offer Share,Price after discount (Price before discount-Total discount),Shipping Charges,Final Invoice Amount (Price after discount+Shipping Charges),Type of tax,Taxable Value (Final Invoice Amount -Taxes),CST Rate,CST Amount,VAT Rate,VAT Amount,Luxury Cess Rate,Luxury Cess Amount,IGST Rate,IGST Amount,CGST Rate,CGST Amount,SGST Rate (or UTGST as applicable),SGST Amount (Or UTGST as applicable),TCS IGST Rate,TCS IGST Amount,TCS CGST Rate,TCS CGST Amount,TCS SGST Rate,TCS SGST Amount,Total TCS Deducted,Buyer Invoice ID,Buyer Invoice Date,Buyer Invoice Amount,Customer's Billing Pincode,Customer's Billing State,Customer's Delivery Pincode,Customer's Delivery State,Usual Price,Is Shopsy Order?,TDS Rate,TDS Amount,IRN,Business Name,Business GST Number,Beneficiary Name,IMEI
 Mandatory,,,,,,,,,,,,,Mandatory,,,,,,,,,,,Mandatory,,,,,,,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,,,,,,,,,,,,Mandatory,,,,,,,,,,,"""
@@ -20,6 +30,35 @@ def load_data(file):
         file.seek(0)
         # Read the first row as header, skip the second row (index 1)
         return pd.read_excel(file, skiprows=[1])
+
+# --- CACHED DATA PROCESSING FUNCTION ---
+@st.cache_data(show_spinner="Processing Flipkart sales data...")
+def process_flipkart_data(df_raw):
+    """
+    Cleans, converts types, applies conditional quantity sign logic, 
+    and creates the state grouping column for aggregation.
+    """
+    df = df_raw.copy()
+    
+    # List of columns to convert to numeric for calculation
+    numeric_cols = [COL_TAXABLE_VALUE, COL_ITEM_QUANTITY, COL_IGST, COL_CGST, COL_SGST]
+
+    # 1. Data Cleaning/Preprocessing: Convert all calculation columns to numeric and handle NaN
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df.fillna(0, inplace=True)
+    
+    # 2. Conditional Quantity Sign: If Taxable Value is negative, Item Quantity must be negative.
+    negative_tax_mask = df[COL_TAXABLE_VALUE] < 0
+    df.loc[negative_tax_mask, COL_ITEM_QUANTITY] = (
+        df.loc[negative_tax_mask, COL_ITEM_QUANTITY].abs() * -1
+    )
+
+    # 3. Create Grouping Column (First 4 characters)
+    # Handle potential NaN or non-string values by coercing to string before slicing
+    df['State_Group'] = df[COL_BILLING_STATE].astype(str).str[:4]
+    
+    return df
 
 
 # 1. Page Configuration
@@ -50,7 +89,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.6.0 | E-Commerce Solutions (GST Logic Updated)")
+st.sidebar.info("v1.7.0 | E-Commerce Solutions (GSTIN Filter Added)")
 
 
 # 3. Main Content Logic
@@ -325,74 +364,88 @@ elif "Reporting" in menu:
             # File Uploader
             flipkart_sales_file = st.file_uploader("Upload Flipkart Sales Data (CSV/Excel)", type=['csv', 'xlsx'], key='flipkart_sales')
             
-            if st.button("Generate Flipkart GSTR-1 Data", key='gen_flipkart'):
+            # Use a button to trigger processing only once
+            if st.button("Process Data for GSTR-1", key='gen_flipkart'):
                 if flipkart_sales_file:
                     try:
-                        df_flipkart = load_data(flipkart_sales_file)
-                        st.info("File uploaded successfully. Applying GSTR-1 calculation and grouping logic...")
-                        
-                        # 1. Define required columns
-                        COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' # Y
-                        COL_ITEM_QUANTITY = 'Item Quantity' # N
-                        COL_IGST = 'IGST Amount' # AF
-                        COL_CGST = 'CGST Amount' # AI
-                        COL_SGST = 'SGST Amount (Or UTGST as applicable)' # AK
-                        COL_BILLING_STATE = "Customer's Billing State" # AW
-                        
-                        # List of columns to convert to numeric for calculation
-                        numeric_cols = [COL_TAXABLE_VALUE, COL_ITEM_QUANTITY, COL_IGST, COL_CGST, COL_SGST]
-
-                        # 2. Data Cleaning/Preprocessing: Convert all calculation columns to numeric and handle NaN
-                        for col in numeric_cols:
-                            df_flipkart[col] = pd.to_numeric(df_flipkart[col], errors='coerce')
-                        df_flipkart.fillna(0, inplace=True)
-                        
-                        # 3. Conditional Quantity Sign: If Taxable Value is negative, Item Quantity must be negative.
-                        negative_tax_mask = df_flipkart[COL_TAXABLE_VALUE] < 0
-                        df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY] = (
-                            df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY].abs() * -1
-                        )
-                        # Ensure positive quantities remain positive if the value was negative due to an error, we correct it with .abs()
-
-                        # 4. Create Grouping Column (First 4 characters)
-                        # Handle potential NaN or non-string values by coercing to string before slicing
-                        df_flipkart['State_Group'] = df_flipkart[COL_BILLING_STATE].astype(str).str[:4]
-                        
-                        # 5. Final Aggregation by State_Group
-                        final_gstr1_summary = df_flipkart.groupby(
-                            'State_Group'
-                        ).agg(
-                            # Sum the four requested tax columns
-                            Taxable_Value_Total=(COL_TAXABLE_VALUE, 'sum'),
-                            IGST_Total=(COL_IGST, 'sum'),
-                            CGST_Total=(COL_CGST, 'sum'),
-                            SGST_UTGST_Total=(COL_SGST, 'sum'),
-                            
-                            # Include the adjusted quantity
-                            Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum')
-                        ).reset_index()
-                        
-                        final_gstr1_summary.rename(columns={'State_Group': 'Customer Billing State Group (First 4 Chars)'}, inplace=True)
-
-                        st.success("✅ GSTR-1 Data Aggregation Complete! Summary created by Billing State Group.")
-                        
-                        st.subheader("Flipkart Consolidated GSTR-1 Summary")
-                        st.dataframe(final_gstr1_summary, use_container_width=True)
-                        
-                        # Download button for the resulting summary
-                        csv_output = final_gstr1_summary.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="⬇️ Download GSTR-1 Summary (CSV)",
-                            data=csv_output,
-                            file_name='flipkart_gstr1_summary_grouped.csv',
-                            mime='text/csv',
-                        )
-                        
+                        df_raw = load_data(flipkart_sales_file)
+                        # Process and cache the data
+                        df_processed = process_flipkart_data(df_raw)
+                        st.session_state['flipkart_gstr1_df'] = df_processed
+                        st.success("✅ File processed successfully! Use the filter below to view summaries.")
                     except Exception as e:
                         st.error(f"Error processing Flipkart file: {e}")
-                        st.warning("Please ensure your uploaded file strictly follows the format of the downloaded template and contains valid numeric data in the tax columns.")
+                        st.warning("Please ensure your uploaded file is correctly formatted.")
+                        st.session_state['flipkart_gstr1_df'] = None
                 else:
                     st.warning("Please upload the Flipkart Sales Data file to proceed.")
+
+            # --- Filtering and Display Logic (Runs if processed data is available) ---
+            if 'flipkart_gstr1_df' in st.session_state and st.session_state['flipkart_gstr1_df'] is not None:
+                
+                df_processed = st.session_state['flipkart_gstr1_df']
+                st.markdown("---")
+                st.subheader("Filter and Aggregated Totals")
+                
+                # 1. Get unique GSTINs
+                unique_gstins = df_processed[COL_GSTIN].unique().tolist()
+                
+                # Sort them and add 'ALL' as the first option
+                gstin_options = ['ALL'] + sorted(unique_gstins)
+                
+                # 2. GSTIN Dropdown
+                selected_gstin = st.selectbox(
+                    "Select Seller GSTIN for Report View:",
+                    options=gstin_options,
+                    key='gstin_selector'
+                )
+                
+                # 3. Filter the data based on selection
+                if selected_gstin == 'ALL':
+                    filtered_df = df_processed.copy()
+                else:
+                    filtered_df = df_processed[df_processed[COL_GSTIN] == selected_gstin].copy()
+                    
+                # 4. Final Aggregation on Filtered Data
+                final_gstr1_summary = filtered_df.groupby(
+                    'State_Group'
+                ).agg(
+                    Taxable_Value_Total=(COL_TAXABLE_VALUE, 'sum'),
+                    IGST_Total=(COL_IGST, 'sum'),
+                    CGST_Total=(COL_CGST, 'sum'),
+                    SGST_UTGST_Total=(COL_SGST, 'sum'),
+                    Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum') # Item Qty based on earlier logic
+                ).reset_index()
+                
+                final_gstr1_summary.rename(columns={'State_Group': 'Customer Billing State Group (First 4 Chars)'}, inplace=True)
+
+                # 5. Calculate and Display Totals (Box View)
+                total_taxable_value = final_gstr1_summary['Taxable_Value_Total'].sum()
+                total_igst = final_gstr1_summary['IGST_Total'].sum()
+                total_cgst = final_gstr1_summary['CGST_Total'].sum()
+                total_sgst = final_gstr1_summary['SGST_UTGST_Total'].sum()
+                
+                kpi_cols = st.columns(4)
+                kpi_cols[0].metric("Total Taxable Value", f"₹ {total_taxable_value:,.2f}")
+                kpi_cols[1].metric("Total IGST", f"₹ {total_igst:,.2f}")
+                kpi_cols[2].metric("Total CGST", f"₹ {total_cgst:,.2f}")
+                kpi_cols[3].metric("Total SGST/UTGST", f"₹ {total_sgst:,.2f}")
+                
+                st.subheader(f"GSTR-1 Summary for {selected_gstin}")
+                st.dataframe(final_gstr1_summary, use_container_width=True)
+                
+                # 6. Download button for the resulting summary
+                csv_output = final_gstr1_summary.to_csv(index=False).encode('utf-8')
+                download_file_name = f'flipkart_gstr1_summary_{selected_gstin.replace(" ", "_")}.csv'
+                
+                st.download_button(
+                    label=f"⬇️ Download GSTR-1 Summary for {selected_gstin} (CSV)",
+                    data=csv_output,
+                    file_name=download_file_name,
+                    mime='text/csv',
+                )
+            else:
+                 st.info("Please upload a file and click 'Process Data for GSTR-1' to generate the report.")
 
 
         # --- Meesho Tab ---
