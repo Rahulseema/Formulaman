@@ -36,7 +36,8 @@ def load_data(file):
 def process_flipkart_data(df_raw):
     """
     Cleans, converts types, applies conditional quantity sign logic, 
-    and creates the state grouping column for aggregation.
+    creates the state grouping column, and generates a state name map.
+    Returns: DataFrame, State_Name_Map (dict)
     """
     df = df_raw.copy()
     
@@ -55,10 +56,20 @@ def process_flipkart_data(df_raw):
     )
 
     # 3. Create Grouping Column (First 4 characters)
-    # Handle potential NaN or non-string values by coercing to string before slicing
-    df['State_Group'] = df[COL_BILLING_STATE].astype(str).str[:4]
+    # Ensure all state names are consistently formatted (strip spaces, uppercase) before slicing
+    df['Clean_Billing_State'] = df[COL_BILLING_STATE].astype(str).str.strip().str.upper()
+    df['State_Group'] = df['Clean_Billing_State'].str[:4]
     
-    return df
+    # 4. Create State Name Mapping: Map the 4-char group to a representative full state name.
+    # We use the first encountered state name within that group as the representative.
+    state_mapping_df = df[df['Clean_Billing_State'] != 'NAN'].groupby('State_Group').agg(
+        Representative_State_Name=('Clean_Billing_State', lambda x: x.iloc[0])
+    ).reset_index()
+
+    # Create a dictionary for mapping
+    state_name_map = state_mapping_df.set_index('State_Group')['Representative_State_Name'].to_dict()
+    
+    return df, state_name_map
 
 
 # 1. Page Configuration
@@ -89,7 +100,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.7.0 | E-Commerce Solutions (GSTIN Filter Added)")
+st.sidebar.info("v1.8.0 | E-Commerce Solutions (Full State Name Logic)")
 
 
 # 3. Main Content Logic
@@ -351,7 +362,7 @@ elif "Reporting" in menu:
         # --- Flipkart Tab (UPDATED LOGIC) ---
         with sub_tab2:
             st.header("Flipkart GSTR-1 Data")
-            st.markdown("Download the template, fill with your sales data, and upload the file below. Data will be grouped by the **first 4 characters of the Billing State**.")
+            st.markdown("Download the template, fill with your sales data, and upload the file below.")
             
             # Download Button for the Template
             st.download_button(
@@ -369,14 +380,16 @@ elif "Reporting" in menu:
                 if flipkart_sales_file:
                     try:
                         df_raw = load_data(flipkart_sales_file)
-                        # Process and cache the data
-                        df_processed = process_flipkart_data(df_raw)
+                        # Process and cache the data (returns df and state map)
+                        df_processed, state_name_map = process_flipkart_data(df_raw)
                         st.session_state['flipkart_gstr1_df'] = df_processed
+                        st.session_state['state_name_map'] = state_name_map
                         st.success("✅ File processed successfully! Use the filter below to view summaries.")
                     except Exception as e:
                         st.error(f"Error processing Flipkart file: {e}")
                         st.warning("Please ensure your uploaded file is correctly formatted.")
                         st.session_state['flipkart_gstr1_df'] = None
+                        st.session_state['state_name_map'] = {}
                 else:
                     st.warning("Please upload the Flipkart Sales Data file to proceed.")
 
@@ -384,14 +397,16 @@ elif "Reporting" in menu:
             if 'flipkart_gstr1_df' in st.session_state and st.session_state['flipkart_gstr1_df'] is not None:
                 
                 df_processed = st.session_state['flipkart_gstr1_df']
+                state_name_map = st.session_state['state_name_map']
+                
                 st.markdown("---")
                 st.subheader("Filter and Aggregated Totals")
                 
                 # 1. Get unique GSTINs
-                unique_gstins = df_processed[COL_GSTIN].unique().tolist()
+                unique_gstins = df_processed[COL_GSTIN].astype(str).unique().tolist()
                 
                 # Sort them and add 'ALL' as the first option
-                gstin_options = ['ALL'] + sorted(unique_gstins)
+                gstin_options = ['ALL'] + sorted(g for g in unique_gstins if g != '0.0' and g != 'nan')
                 
                 # 2. GSTIN Dropdown
                 selected_gstin = st.selectbox(
@@ -404,9 +419,10 @@ elif "Reporting" in menu:
                 if selected_gstin == 'ALL':
                     filtered_df = df_processed.copy()
                 else:
-                    filtered_df = df_processed[df_processed[COL_GSTIN] == selected_gstin].copy()
+                    # Filter based on the selected GSTIN
+                    filtered_df = df_processed[df_processed[COL_GSTIN].astype(str) == selected_gstin].copy()
                     
-                # 4. Final Aggregation on Filtered Data
+                # 4. Final Aggregation on Filtered Data (Group by the 4-char code)
                 final_gstr1_summary = filtered_df.groupby(
                     'State_Group'
                 ).agg(
@@ -417,9 +433,21 @@ elif "Reporting" in menu:
                     Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum') # Item Qty based on earlier logic
                 ).reset_index()
                 
-                final_gstr1_summary.rename(columns={'State_Group': 'Customer Billing State Group (First 4 Chars)'}, inplace=True)
+                # 5. Map the 4-char group to the Representative Full State Name
+                final_gstr1_summary['Customer Billing State'] = final_gstr1_summary['State_Group'].map(state_name_map)
+                
+                # Drop the temporary grouping column and reorder columns
+                final_gstr1_summary.drop(columns=['State_Group'], inplace=True)
+                final_gstr1_summary = final_gstr1_summary[[
+                    'Customer Billing State', 
+                    'Taxable_Value_Total', 
+                    'IGST_Total', 
+                    'CGST_Total', 
+                    'SGST_UTGST_Total', 
+                    'Total_Net_Quantity'
+                ]]
 
-                # 5. Calculate and Display Totals (Box View)
+                # 6. Calculate and Display Totals (Box View)
                 total_taxable_value = final_gstr1_summary['Taxable_Value_Total'].sum()
                 total_igst = final_gstr1_summary['IGST_Total'].sum()
                 total_cgst = final_gstr1_summary['CGST_Total'].sum()
@@ -432,9 +460,10 @@ elif "Reporting" in menu:
                 kpi_cols[3].metric("Total SGST/UTGST", f"₹ {total_sgst:,.2f}")
                 
                 st.subheader(f"GSTR-1 Summary for {selected_gstin}")
+                st.markdown("*(States are grouped by the first 4 characters for consolidation, and the full state name from the data is shown.)*")
                 st.dataframe(final_gstr1_summary, use_container_width=True)
                 
-                # 6. Download button for the resulting summary
+                # 7. Download button for the resulting summary
                 csv_output = final_gstr1_summary.to_csv(index=False).encode('utf-8')
                 download_file_name = f'flipkart_gstr1_summary_{selected_gstin.replace(" ", "_")}.csv'
                 
