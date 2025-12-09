@@ -140,13 +140,15 @@ if not st.session_state["authenticated"]:
 # ==========================================
 # Initialize Global Data Storage for Merging
 if 'master_gstr1_data' not in st.session_state:
-    st.session_state['master_gstr1_data'] = {} # Format: {'Flipkart': df, 'Meesho': df}
+    st.session_state['master_gstr1_data'] = {} 
 
-# Initialize Flipkart-specific session state to persist data between reruns
+# Initialize Channel Specific Session States
 if 'flipkart_raw_df' not in st.session_state:
     st.session_state['flipkart_raw_df'] = None
 if 'flipkart_state_map' not in st.session_state:
     st.session_state['flipkart_state_map'] = {}
+if 'meesho_df' not in st.session_state:
+    st.session_state['meesho_df'] = None
 
 COL_GSTIN = 'Seller GSTIN'
 COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' 
@@ -525,17 +527,49 @@ if "Reporting" in menu:
                             # 2. Process
                             meesho_final = process_meesho_data(df_sales_all, df_returns_all)
                             
-                            # 3. Store for Master Merge
-                            # Standardize Column Names: State, Taxable, IGST, CGST, SGST
+                            # 3. Store in Session State
+                            st.session_state['meesho_df'] = meesho_final
+
+                            # 4. Store for Master Merge
                             std_meesho = meesho_final.rename(columns={'Taxable_Value': 'Taxable'})
                             st.session_state['master_gstr1_data']['Meesho'] = std_meesho[['State', 'Taxable', 'IGST', 'CGST', 'SGST']]
                             
                             st.success("Meesho Data Processed & Saved for Merge!")
-                            st.dataframe(std_meesho, use_container_width=True)
+                            
                         except Exception as e:
                             st.error(f"Error: {e}")
                     else:
                         st.warning("Upload Sales and Return files.")
+
+            # --- MEESHO REPORT VIEW (VALUE CARDS ADDED) ---
+            if st.session_state['meesho_df'] is not None:
+                st.divider()
+                st.subheader("Meesho Summary & Cards")
+                
+                m_df = st.session_state['meesho_df']
+
+                # 1. CALCULATE METRICS
+                total_taxable = m_df['Taxable_Value'].sum()
+                total_igst = m_df['IGST'].sum()
+                total_cgst = m_df['CGST'].sum()
+                total_sgst = m_df['SGST'].sum()
+                total_qty = m_df['Total_Qty'].sum()
+
+                # 2. DISPLAY CARDS
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Taxable Value", f"₹ {total_taxable:,.0f}")
+                m2.metric("IGST", f"₹ {total_igst:,.0f}")
+                m3.metric("CGST", f"₹ {total_cgst:,.0f}")
+                m4.metric("SGST", f"₹ {total_sgst:,.0f}")
+                m5.metric("Total Qty", f"{total_qty:,.0f}")
+
+                # 3. SHOW DATAFRAME
+                st.dataframe(m_df, use_container_width=True)
+
+                # 4. DOWNLOAD BUTTON
+                csv = m_df.to_csv(index=False).encode('utf-8')
+                st.download_button(f"⬇️ Download Meesho Summary", csv, "meesho_summary.csv", "text/csv")
+
 
         # --- Placeholders for Others ---
         for t, n in zip([sub_tab1, sub_tab4, sub_tab5, sub_tab6], ["Amazon", "Myntra", "JioMart", "Ajio"]):
