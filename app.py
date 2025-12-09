@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io 
 
-# Define constants for column names
+# Define constants for common column names (Flipkart)
 COL_GSTIN = 'Seller GSTIN'
 COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' # Y
 COL_ITEM_QUANTITY = 'Item Quantity' # N
@@ -11,7 +11,6 @@ COL_IGST = 'IGST Amount' # AF
 COL_CGST = 'CGST Amount' # AI
 COL_SGST = 'SGST Amount (Or UTGST as applicable)' # AK
 COL_BILLING_STATE = "Customer's Billing State" # AW
-
 
 # Define the two-line header/mandatory row for the Flipkart GSTR-1 template
 FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title/Description,FSN,SKU,HSN Code,Event Type,Event Sub Type,Order Type,Fulfilment Type,Order Date,Order Approval Date,Item Quantity,Order Shipped From (State),Warehouse ID,Price before discount,Total Discount,Seller Share,Bank Offer Share,Price after discount (Price before discount-Total discount),Shipping Charges,Final Invoice Amount (Price after discount+Shipping Charges),Type of tax,Taxable Value (Final Invoice Amount -Taxes),CST Rate,CST Amount,VAT Rate,VAT Amount,Luxury Cess Rate,Luxury Cess Amount,IGST Rate,IGST Amount,CGST Rate,CGST Amount,SGST Rate (or UTGST as applicable),SGST Amount (Or UTGST as applicable),TCS IGST Rate,TCS IGST Amount,TCS CGST Rate,TCS CGST Amount,TCS SGST Rate,TCS SGST Amount,Total TCS Deducted,Buyer Invoice ID,Buyer Invoice Date,Buyer Invoice Amount,Customer's Billing Pincode,Customer's Billing State,Customer's Delivery Pincode,Customer's Delivery State,Usual Price,Is Shopsy Order?,TDS Rate,TDS Amount,IRN,Business Name,Business GST Number,Beneficiary Name,IMEI
@@ -31,15 +30,14 @@ def load_data(file):
         # Read the first row as header, skip the second row (index 1)
         return pd.read_excel(file, skiprows=[1])
 
-# --- CACHED DATA PROCESSING FUNCTION ---
+# --- CACHED DATA PROCESSING FUNCTIONS ---
+
 @st.cache_data(show_spinner="Processing Flipkart sales data...")
 def process_flipkart_data(df_raw):
     """
     Cleans, converts types, applies conditional quantity sign logic, 
     creates the state grouping column (4 chars), and generates a state name map 
     using the first 5 characters of the state name for display.
-    
-    Returns: DataFrame, State_Name_Map (dict)
     """
     df = df_raw.copy()
     
@@ -63,17 +61,113 @@ def process_flipkart_data(df_raw):
     df['State_Group'] = df['Clean_Billing_State_Upper'].str[:4]
     
     # 4. Create State Name Mapping: Map the 4-char group to a representative 5-char state code.
-    # We use the first encountered state name (in its original casing: COL_BILLING_STATE) 
-    # and truncate it to the first 5 characters for display.
-    # Exclude 'NAN' entries from mapping
     state_mapping_df = df[df['Clean_Billing_State_Upper'] != 'NAN'].groupby('State_Group').agg(
-        Representative_State_Name=(COL_BILLING_STATE, lambda x: str(x.iloc[0]).strip()[:5]) # <<< Truncate to first 5 characters
+        Representative_State_Name=(COL_BILLING_STATE, lambda x: str(x.iloc[0]).strip()[:5])
     ).reset_index()
 
     # Create a dictionary for mapping
     state_name_map = state_mapping_df.set_index('State_Group')['Representative_State_Name'].to_dict()
     
     return df, state_name_map
+
+
+@st.cache_data(show_spinner="Processing Meesho GSTR-1 data...")
+def process_meesho_data(tcs_sales_file, tcs_sales_return_file):
+    """
+    Loads, cleans, merges Meesho sales and returns data, applies sign correction 
+    and bifurcates tax based on the 'HARYANA' logic for GSTR-1.
+    """
+    
+    # Define Column Headers expected from Meesho Reports (based on common structure/user's prompt)
+    COL_M_QTY = 'quantity'
+    COL_M_TAX_VALUE = 'total_taxable_sale_value'
+    COL_M_TAX_AMOUNT = 'tax_amount'
+    COL_M_STATE = 'end_customer_state_new'
+    
+    COLS_TO_PROCESS = [COL_M_QTY, COL_M_TAX_VALUE, COL_M_TAX_AMOUNT]
+    
+    df_sales = load_data(tcs_sales_file)
+    df_returns = load_data(tcs_sales_return_file)
+
+    # Validate mandatory columns exist in both files
+    missing_cols_sales = [col for col in COLS_TO_PROCESS + [COL_M_STATE] if col not in df_sales.columns]
+    missing_cols_returns = [col for col in COLS_TO_PROCESS + [COL_M_STATE] if col not in df_returns.columns]
+    
+    if missing_cols_sales or missing_cols_returns:
+        raise KeyError(
+            f"Missing columns: Sales file missing: {missing_cols_sales if missing_cols_sales else 'None'}. "
+            f"Returns file missing: {missing_cols_returns if missing_cols_returns else 'None'}. "
+            f"Expected columns: {COLS_TO_PROCESS + [COL_M_STATE]}"
+        )
+
+    # 1. Prepare Sales Data (Positive)
+    for col in COLS_TO_PROCESS:
+        df_sales[col] = pd.to_numeric(df_sales[col], errors='coerce').fillna(0)
+    
+    # 2. Prepare Returns Data (Negative)
+    for col in COLS_TO_PROCESS:
+        df_returns[col] = pd.to_numeric(df_returns[col], errors='coerce').fillna(0)
+        # Apply negative sign for returns
+        df_returns[col] = df_returns[col] * -1
+    
+    # 3. Merge Dataframes
+    df_merged = pd.concat([df_sales, df_returns], ignore_index=True)
+    
+    # 4. Clean State Column
+    df_merged['State_Clean'] = df_merged[COL_M_STATE].astype(str).str.strip().str.upper()
+    
+    # 5. Tax Bifurcation Logic
+    
+    # Initialize new tax columns
+    df_merged['IGST'] = 0.0
+    df_merged['CGST'] = 0.0
+    df_merged['SGST'] = 0.0
+    
+    # HARYANA (Intra-state): Split tax into CGST and SGST (two equal halves)
+    haryana_mask = df_merged['State_Clean'] == 'HARYANA'
+    df_merged.loc[haryana_mask, 'CGST'] = df_merged[COL_M_TAX_AMOUNT] / 2
+    df_merged.loc[haryana_mask, 'SGST'] = df_merged[COL_M_TAX_AMOUNT] / 2
+    
+    # Rest States (Inter-state): Whole tax amount goes to IGST
+    other_states_mask = df_merged['State_Clean'] != 'HARYANA'
+    df_merged.loc[other_states_mask, 'IGST'] = df_merged[COL_M_TAX_AMOUNT]
+    
+    # 6. Final Aggregation
+    final_summary = df_merged.groupby(
+        COL_M_STATE, # Group by the original state name (un-cased)
+        dropna=True 
+    ).agg(
+        Total_Qty=(COL_M_QTY, 'sum'),
+        Taxable_Value=(COL_M_TAX_VALUE, 'sum'),
+        IGST=('IGST', 'sum'),
+        CGST=('CGST', 'sum'),
+        SGST=('SGST', 'sum')
+    ).reset_index()
+    
+    # Rename columns for final display
+    final_summary.rename(columns={
+        COL_M_STATE: 'End State',
+        'Total_Qty': 'Total Qty',
+        'Taxable_Value': 'Taxable Value'
+    }, inplace=True)
+    
+    # Order the columns as requested: End State | Total Qty | Taxable Value | IGST | CGST| SGST
+    final_summary = final_summary[[
+        'End State', 
+        'Total Qty', 
+        'Taxable Value', 
+        'IGST', 
+        'CGST', 
+        'SGST'
+    ]]
+    
+    # Rounding for currency
+    final_summary['Taxable Value'] = final_summary['Taxable Value'].round(2)
+    final_summary['IGST'] = final_summary['IGST'].round(2)
+    final_summary['CGST'] = final_summary['CGST'].round(2)
+    final_summary['SGST'] = final_summary['SGST'].round(2)
+    
+    return final_summary
 
 
 # 1. Page Configuration
@@ -104,7 +198,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.8.4 | E-Commerce Solutions (Updated Meesho GSTR-1 File Names)")
+st.sidebar.info("v1.8.5 | E-Commerce Solutions (Meesho GSTR-1 Logic Update)")
 
 
 # 3. Main Content Logic
@@ -363,7 +457,7 @@ elif "Reporting" in menu:
             if st.button("Generate Amazon GSTR-1 Data", key='gen_amazon'):
                 st.success("Amazon data processing initiated. Summary will appear here.")
         
-        # --- Flipkart Tab (UPDATED LOGIC) ---
+        # --- Flipkart Tab ---
         with sub_tab2:
             st.header("Flipkart GSTR-1 Data")
             st.markdown("Download the template, fill with your sales data, and upload the file below.")
@@ -398,7 +492,6 @@ elif "Reporting" in menu:
                     st.warning("Please upload the Flipkart Sales Data file to proceed.")
             
             # --- SESSION STATE INITIALIZATION AND ACCESS ---
-            # Initialize session state variables if they don't exist to prevent KeyError
             if 'flipkart_gstr1_df' not in st.session_state:
                 st.session_state['flipkart_gstr1_df'] = None
             if 'state_name_map' not in st.session_state:
@@ -415,25 +508,21 @@ elif "Reporting" in menu:
                 st.subheader("Filter and Aggregated Totals")
                 
                 # 1. Get unique GSTINs
-                # Filter out potential non-string/null values like '0.0' or 'nan' before display
                 unique_gstins = df_processed[COL_GSTIN].astype(str).unique()
                 valid_gstins = sorted([g for g in unique_gstins if g not in ('0.0', 'nan', '0')])
-                
-                # Sort them and add 'ALL' as the first option
                 gstin_options = ['ALL'] + valid_gstins
                 
                 # 2. GSTIN Dropdown
                 selected_gstin = st.selectbox(
                     "Select Seller GSTIN for Report View:",
                     options=gstin_options,
-                    key='gstin_selector'
+                    key='flipkart_gstin_selector' # Changed key to avoid conflict
                 )
                 
                 # 3. Filter the data based on selection
                 if selected_gstin == 'ALL':
                     filtered_df = df_processed.copy()
                 else:
-                    # Filter based on the selected GSTIN (must match the string representation)
                     filtered_df = df_processed[df_processed[COL_GSTIN].astype(str) == selected_gstin].copy()
                     
                 # 4. Final Aggregation on Filtered Data (Group by the 4-char code)
@@ -444,7 +533,7 @@ elif "Reporting" in menu:
                     IGST_Total=(COL_IGST, 'sum'),
                     CGST_Total=(COL_CGST, 'sum'),
                     SGST_UTGST_Total=(COL_SGST, 'sum'),
-                    Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum') # Item Qty based on earlier logic
+                    Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum')
                 ).reset_index()
                 
                 # 5. Map the 4-char group to the Representative 5-Letter State Code
@@ -494,23 +583,75 @@ elif "Reporting" in menu:
         # --- Meesho Tab (UPDATED) ---
         with sub_tab3:
             st.header("Meesho GSTR-1 Data")
-            st.markdown("All three files are required to accurately calculate net sales and TCS.")
+            st.markdown("The **tcs_sales** and **tcs_sales_return** files are mandatory for calculating net sales and taxes.")
             
+            # Initialize session state for Meesho summary
+            if 'meesho_gstr1_df' not in st.session_state:
+                st.session_state['meesho_gstr1_df'] = None
+                
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
                 st.warning("TCS Sales Report (Mandatory)")
-                st.file_uploader("Upload **tcs_sales** File", type=['csv', 'xlsx'], key='meesho_tcs_sales')
+                tcs_sales_file = st.file_uploader("Upload **tcs_sales** File", type=['csv', 'xlsx'], key='meesho_tcs_sales')
             
             with col_m2:
                 st.warning("TCS Sales Return Report (Mandatory)")
-                st.file_uploader("Upload **tcs_sales_return** File", type=['csv', 'xlsx'], key='meesho_tcs_sales_return')
+                tcs_sales_return_file = st.file_uploader("Upload **tcs_sales_return** File", type=['csv', 'xlsx'], key='meesho_tcs_sales_return')
                 
             with col_m3:
-                st.warning("Tax Invoice Details (Mandatory)")
+                st.info("Tax Invoice Details (Optional)")
+                # This file is uploaded but currently not used in the mandatory GSTR-1 calculation
                 st.file_uploader("Upload **Tax_invoice_details** File", type=['csv', 'xlsx'], key='meesho_tax_invoice_details')
                 
+            
             if st.button("Generate Meesho GSTR-1 Data", key='gen_meesho'):
-                st.success("Meesho data processing initiated. Final GSTR-1 values calculated.")
+                if tcs_sales_file and tcs_sales_return_file:
+                    with st.spinner("Processing Meesho data..."):
+                        try:
+                            meesho_summary_df = process_meesho_data(tcs_sales_file, tcs_sales_return_file)
+                            st.session_state['meesho_gstr1_df'] = meesho_summary_df
+                            st.success("✅ Meesho GSTR-1 Summary processed successfully!")
+                            
+                        except KeyError as e:
+                            st.error(f"Error: Missing expected column in uploaded file: {e}. Please ensure your file headers match the standard Meesho report names: `quantity`, `total_taxable_sale_value`, `tax_amount`, and `end_customer_state_new`.")
+                            st.session_state['meesho_gstr1_df'] = None
+                        except Exception as e:
+                            st.error(f"An unexpected error occurred during processing: {e}")
+                            st.warning("Please check file formats and column data types.")
+                else:
+                    st.warning("Please upload both the **tcs_sales** and **tcs_sales_return** files to generate the report.")
+
+            
+            # Display results if available
+            if st.session_state['meesho_gstr1_df'] is not None:
+                meesho_summary_df = st.session_state['meesho_gstr1_df']
+                st.markdown("---")
+                
+                # Calculate and Display Totals (Box View)
+                total_taxable_value = meesho_summary_df['Taxable Value'].sum()
+                total_igst = meesho_summary_df['IGST'].sum()
+                total_cgst = meesho_summary_df['CGST'].sum()
+                total_sgst = meesho_summary_df['SGST'].sum()
+                
+                kpi_cols = st.columns(4)
+                kpi_cols[0].metric("Total Taxable Value", f"₹ {total_taxable_value:,.2f}")
+                kpi_cols[1].metric("Total IGST", f"₹ {total_igst:,.2f}")
+                kpi_cols[2].metric("Total CGST", f"₹ {total_cgst:,.2f}")
+                kpi_cols[3].metric("Total SGST/UTGST", f"₹ {total_sgst:,.2f}")
+                
+                st.subheader("Meesho GSTR-1 Summary")
+                st.markdown("*(Tax is bifurcated into CGST/SGST for HARYANA and IGST for all other states.)*")
+                st.dataframe(meesho_summary_df, use_container_width=True)
+                
+                # Download button
+                csv_output = meesho_summary_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label=f"⬇️ Download Meesho GSTR-1 Summary (CSV)",
+                    data=csv_output,
+                    file_name='meesho_gstr1_summary.csv',
+                    mime='text/csv',
+                )
+
 
         # --- Myntra Tab ---
         with sub_tab4:
