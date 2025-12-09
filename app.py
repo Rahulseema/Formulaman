@@ -142,6 +142,12 @@ if not st.session_state["authenticated"]:
 if 'master_gstr1_data' not in st.session_state:
     st.session_state['master_gstr1_data'] = {} # Format: {'Flipkart': df, 'Meesho': df}
 
+# Initialize Flipkart-specific session state to persist data between reruns
+if 'flipkart_raw_df' not in st.session_state:
+    st.session_state['flipkart_raw_df'] = None
+if 'flipkart_state_map' not in st.session_state:
+    st.session_state['flipkart_state_map'] = {}
+
 COL_GSTIN = 'Seller GSTIN'
 COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' 
 COL_ITEM_QUANTITY = 'Item Quantity' 
@@ -328,34 +334,89 @@ if "Reporting" in menu:
                         if f2: files_to_process.append(f2)
                         if f3: files_to_process.append(f3)
 
+                    # PROCESSING BUTTON
                     if st.button("Process Flipkart Data", key='proc_fk', use_container_width=True):
                         if files_to_process:
                             try:
-                                # 1. Consolidate Files (Monthly or Quarterly)
+                                # 1. Consolidate Files
                                 df_raw = consolidate_files(files_to_process)
                                 
                                 # 2. Process Data
                                 df_processed, state_map = process_flipkart_data(df_raw)
                                 
-                                # 3. Generate Summary for Display
-                                summary = df_processed.groupby('State_Group').agg(
-                                    Taxable=(COL_TAXABLE_VALUE, 'sum'),
-                                    IGST=(COL_IGST, 'sum'),
-                                    CGST=(COL_CGST, 'sum'),
-                                    SGST=(COL_SGST, 'sum')
-                                ).reset_index()
-                                summary['State'] = summary['State_Group'].map(state_map)
-                                final_view = summary[['State', 'Taxable', 'IGST', 'CGST', 'SGST']]
+                                # 3. Save to Session State (So we can filter below without re-uploading)
+                                st.session_state['flipkart_raw_df'] = df_processed
+                                st.session_state['flipkart_state_map'] = state_map
                                 
-                                # 4. Store for Master Merge (Standardized Columns)
-                                st.session_state['master_gstr1_data']['Flipkart'] = final_view
-                                st.success("Flipkart Data Processed & Saved for Merge!")
-                                st.dataframe(final_view, use_container_width=True)
+                                st.success("Data processed successfully! Scroll down for reports.")
                                 
                             except Exception as e:
                                 st.error(f"Error: {e}")
                         else:
                             st.warning("Please upload at least one file.")
+
+            # --- FLIPKART REPORT VIEW (FILTERING RESTORED) ---
+            # This runs if data exists in Session State, independent of the button click
+            if st.session_state['flipkart_raw_df'] is not None:
+                st.divider()
+                st.subheader("Flipkart Summary & Cards")
+                
+                df_flipkart = st.session_state['flipkart_raw_df']
+                state_map = st.session_state['flipkart_state_map']
+
+                # 1. GSTIN FILTER
+                unique_gstins = df_flipkart[COL_GSTIN].astype(str).unique()
+                valid_gstins = sorted([g for g in unique_gstins if g not in ('0.0', 'nan', '0')])
+                gstin_options = ['ALL'] + valid_gstins
+                
+                selected_gstin = st.selectbox("Select Seller GSTIN:", gstin_options)
+
+                # 2. FILTER DATA
+                if selected_gstin == 'ALL':
+                    filtered_df = df_flipkart.copy()
+                else:
+                    filtered_df = df_flipkart[df_flipkart[COL_GSTIN].astype(str) == selected_gstin].copy()
+
+                # 3. CALCULATE METRICS
+                total_taxable = filtered_df[COL_TAXABLE_VALUE].sum()
+                total_igst = filtered_df[COL_IGST].sum()
+                total_cgst = filtered_df[COL_CGST].sum()
+                total_sgst = filtered_df[COL_SGST].sum()
+                total_qty = filtered_df[COL_ITEM_QUANTITY].sum()
+
+                # 4. DISPLAY CARDS
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Taxable Value", f"₹ {total_taxable:,.0f}")
+                m2.metric("IGST", f"₹ {total_igst:,.0f}")
+                m3.metric("CGST", f"₹ {total_cgst:,.0f}")
+                m4.metric("SGST", f"₹ {total_sgst:,.0f}")
+                m5.metric("Total Qty", f"{total_qty:,.0f}")
+
+                # 5. PREPARE AGGREGATED TABLE FOR DISPLAY
+                # Group by 4-char State Group for display summary
+                summary_view = filtered_df.groupby('State_Group').agg(
+                    Taxable=(COL_TAXABLE_VALUE, 'sum'),
+                    IGST=(COL_IGST, 'sum'),
+                    CGST=(COL_CGST, 'sum'),
+                    SGST=(COL_SGST, 'sum'),
+                    Qty=(COL_ITEM_QUANTITY, 'sum')
+                ).reset_index()
+                
+                summary_view['State'] = summary_view['State_Group'].map(state_map)
+                
+                # Reorder cols
+                summary_view = summary_view[['State', 'Taxable', 'IGST', 'CGST', 'SGST', 'Qty']]
+                
+                st.dataframe(summary_view, use_container_width=True)
+
+                # 6. SAVE TO MASTER MERGE (Depending on requirement, usually we save the ALL version or the filtered version)
+                # We will save the "Filtered" version to Master Merge so the user can control what goes into the final sheet.
+                st.session_state['master_gstr1_data']['Flipkart'] = summary_view[['State', 'Taxable', 'IGST', 'CGST', 'SGST']]
+                
+                # Download Button for this specific view
+                csv = summary_view.to_csv(index=False).encode('utf-8')
+                st.download_button(f"⬇️ Download Summary ({selected_gstin})", csv, "flipkart_summary.csv", "text/csv")
+
 
         # --- MEESHO LOGIC ---
         with sub_tab3:
