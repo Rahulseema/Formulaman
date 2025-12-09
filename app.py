@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS FOR "BEAUTIFICATION" ---
+# --- CUSTOM CSS FOR "BEAUTIFICATION" & COLOR FIXES ---
 st.markdown("""
 <style>
     /* Import Google Font */
@@ -24,12 +24,24 @@ st.markdown("""
         font-family: 'Poppins', sans-serif;
     }
 
-    /* Change Sidebar Background */
+    /* --- SIDEBAR STYLING (Dark Blue Background, White Text) --- */
     section[data-testid="stSidebar"] {
-        background-color: #f0f2f6;
+        background-color: #172554; /* Dark Navy Blue */
+    }
+    
+    /* Force all text in sidebar to be white */
+    section[data-testid="stSidebar"] * {
+        color: #F8FAFC !important; /* White/Light Gray */
     }
 
-    /* Custom Header Style */
+    /* Fix Radio Button Selection Color in Sidebar */
+    section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label > div:first-child {
+        background-color: #F8FAFC !important;
+    }
+
+    /* --- MAIN CONTENT STYLING --- */
+    
+    /* Headers */
     .main-header {
         font-size: 2.5rem;
         font-weight: 700;
@@ -43,77 +55,105 @@ st.markdown("""
         margin-bottom: 2rem;
     }
 
-    /* Card Styling for Metrics */
-    div[data-testid="stMetric"] {
+    /* --- CARD / CONTAINER STYLING --- */
+    /* Force containers to have white background and dark text */
+    [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Force text inside cards to be dark */
+    [data-testid="stVerticalBlockBorderWrapper"] * {
+        color: #0F172A !important; /* Dark Slate */
     }
 
-    /* Enforce Button Styling (Fixes Theme Issues) */
+    /* --- METRIC CARD STYLING --- */
+    div[data-testid="stMetric"] {
+        background-color: #F1F5F9 !important; /* Light Gray Background */
+        border: 1px solid #CBD5E1;
+        padding: 15px;
+        border-radius: 10px;
+        color: #0F172A !important;
+    }
+    
+    div[data-testid="stMetric"] label {
+        color: #475569 !important; /* Muted Text for Label */
+    }
+    
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #1E3A8A !important; /* Dark Blue for Numbers */
+    }
+
+    /* --- BUTTON STYLING --- */
     div.stButton > button {
-        background-color: #2563EB !important; /* Force Blue */
+        background-color: #2563EB !important; /* Bright Blue */
         color: white !important;
         border-radius: 8px;
         border: none;
         padding: 0.5rem 1rem;
-        font-weight: 500;
+        font-weight: 600;
     }
     div.stButton > button:hover {
-        background-color: #1D4ED8 !important; /* Darker Blue on Hover */
+        background-color: #1D4ED8 !important; /* Darker Blue Hover */
         color: white !important;
-        border-color: #1D4ED8 !important;
+    }
+    
+    /* Fix Input Fields appearing invisible in some themes */
+    input {
+        color: #0F172A !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. AUTHENTICATION LOGIC (FIXED)
+# 2. AUTHENTICATION LOGIC
 # ==========================================
 
-# Initialize Session State Variables
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if "user_id" not in st.session_state:
     st.session_state["user_id"] = ""
 
-# Function to check password
 def check_password():
-    # Helper to safely get values from the widget
     user = st.session_state.get("username_input", "")
     pwd = st.session_state.get("password_input", "")
 
     if user == "Rahul" and pwd == "Sparsh@2030":
         st.session_state["authenticated"] = True
-        st.session_state["user_id"] = user # Save username to a permanent variable
+        st.session_state["user_id"] = user 
     else:
         st.session_state["authenticated"] = False
         st.error("❌ Invalid User ID or Password")
 
-# If NOT authenticated, show Login Screen and STOP execution
+# LOGIN SCREEN
 if not st.session_state["authenticated"]:
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
+        # We manually style this container because the CSS above applies globally
+        st.markdown("""
+        <div style="background-color: white; padding: 40px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">
+            <h1 style="color: #1E3A8A; margin-bottom: 0;">🏎️ Formula Man</h1>
+            <h3 style="color: #64748B; margin-top: 10px;">Login Required</h3>
+        </div>
+        <br>
+        """, unsafe_allow_html=True)
+        
         with st.container(border=True):
-            st.markdown("<h1 style='text-align: center;'>🏎️ Formula Man</h1>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center;'>Login Required</h3>", unsafe_allow_html=True)
-            
-            # Input widgets
             st.text_input("User ID", key="username_input")
             st.text_input("Password", type="password", key="password_input")
-            
             st.button("Login", on_click=check_password, use_container_width=True)
                 
-    st.stop() # 🛑 STOPS HERE IF NOT LOGGED IN
+    st.stop()
 
 
 # ==========================================
-# 3. CONSTANTS & TEMPLATES (LOADS AFTER LOGIN)
+# 3. CONSTANTS & TEMPLATES
 # ==========================================
 COL_GSTIN = 'Seller GSTIN'
 COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' 
@@ -224,8 +264,8 @@ def process_meesho_data(tcs_sales_file, tcs_sales_return_file):
 # 5. SIDEBAR NAVIGATION
 # ==========================================
 with st.sidebar:
-    st.markdown("<h1 style='text-align: center;'>🏎️</h1>", unsafe_allow_html=True)
-    st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>Formula Man</h2>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: white;'>🏎️</h1>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: white;'>Formula Man</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     menu = st.radio(
@@ -243,17 +283,23 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    with st.container(border=True):
-        st.caption("**System Status**")
-        st.success("● Online")
-        # Use the persistent 'user_id' variable instead of the widget key
-        st.caption(f"Logged in as: {st.session_state['user_id']}")
-        
-        # Logout Button
-        if st.button("Logout"):
-            st.session_state["authenticated"] = False
-            st.session_state["user_id"] = ""
-            st.rerun()
+    
+    # Custom HTML container within sidebar for status to ensure colors work
+    st.markdown(f"""
+    <div style="background-color: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+        <small style="color: #94a3b8;">System Status</small><br>
+        <strong style="color: #4ade80;">● Online</strong><br>
+        <small style="color: #e2e8f0;">User: {st.session_state['user_id']}</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Spacer
+    st.write("")
+    
+    if st.button("Logout", use_container_width=True):
+        st.session_state["authenticated"] = False
+        st.session_state["user_id"] = ""
+        st.rerun()
 
 # ==========================================
 # 6. MAIN CONTENT LOGIC
@@ -264,7 +310,6 @@ if "Listing" in menu:
     st.markdown('<div class="main-header">Product Listings</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Manage your e-commerce catalog and choose your sales channels.</div>', unsafe_allow_html=True)
     
-    # UI: Add Product Card
     with st.container(border=True):
         st.subheader("➕ Add New Product")
         col1, col2 = st.columns(2)
@@ -280,7 +325,6 @@ if "Listing" in menu:
 
     st.markdown("### Top Indian E-commerce Channels")
     
-    # Custom CSS for Tabs
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "Amazon India", "Flipkart", "Myntra", "Meesho", "JioMart", "Nykaa", "Ajio"
     ])
@@ -305,7 +349,6 @@ elif "Picklist" in menu:
     st.markdown('<div class="main-header">Picklist Utility</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Consolidate orders by Master SKU.</div>', unsafe_allow_html=True)
 
-    # KPI Metrics
     with st.container():
         kpi1, kpi2, kpi3 = st.columns(3)
         kpi1.metric("Orders to Pick Today", "12", "-2")
@@ -378,7 +421,7 @@ elif "Sales" in menu:
             'Revenue': [100, 150, 120, 200, 250, 220, 300, 280, 350, 400]
         })
         fig = px.line(data, x='Date', y='Revenue', markers=True)
-        fig.update_layout(plot_bgcolor="white")
+        fig.update_layout(plot_bgcolor="white", paper_bgcolor="white") # Force white chart background
         st.plotly_chart(fig, use_container_width=True)
 
 # --- MARKETING ---
