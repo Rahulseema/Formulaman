@@ -4,22 +4,21 @@ import plotly.express as px
 import io 
 
 # Define the two-line header/mandatory row for the Flipkart GSTR-1 template
-# This content is taken exactly from the header and mandatory rows of your attached file.
-FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title/Description,FSN,SKU,HSN Code,Event Type,Event Sub Type,Order Type,Fulfilment Type,Order Date,Order Approval Date,Item Quantity,Order Shipped From (State),Warehouse ID,Price before discount,Total Discount,Seller Share,Bank Offer Offer Share,Price after discount (Price before discount-Total discount),Shipping Charges,Final Invoice Amount (Price after discount+Shipping Charges),Type of tax,Taxable Value (Final Invoice Amount -Taxes),CST Rate,CST Amount,VAT Rate,VAT Amount,Luxury Cess Rate,Luxury Cess Amount,IGST Rate,IGST Amount,CGST Rate,CGST Amount,SGST Rate (or UTGST as applicable),SGST Amount (Or UTGST as applicable),TCS IGST Rate,TCS IGST Amount,TCS CGST Rate,TCS CGST Amount,TCS SGST Rate,TCS SGST Amount,Total TCS Deducted,Buyer Invoice ID,Buyer Invoice Date,Buyer Invoice Amount,Customer's Billing Pincode,Customer's Billing State,Customer's Delivery Pincode,Customer's Delivery State,Usual Price,Is Shopsy Order?,TDS Rate,TDS Amount,IRN,Business Name,Business GST Number,Beneficiary Name,IMEI
+FLIPKART_TEMPLATE_CONTENT = """Seller GSTIN,Order ID,Order Item ID,Product Title/Description,FSN,SKU,HSN Code,Event Type,Event Sub Type,Order Type,Fulfilment Type,Order Date,Order Approval Date,Item Quantity,Order Shipped From (State),Warehouse ID,Price before discount,Total Discount,Seller Share,Bank Offer Share,Price after discount (Price before discount-Total discount),Shipping Charges,Final Invoice Amount (Price after discount+Shipping Charges),Type of tax,Taxable Value (Final Invoice Amount -Taxes),CST Rate,CST Amount,VAT Rate,VAT Amount,Luxury Cess Rate,Luxury Cess Amount,IGST Rate,IGST Amount,CGST Rate,CGST Amount,SGST Rate (or UTGST as applicable),SGST Amount (Or UTGST as applicable),TCS IGST Rate,TCS IGST Amount,TCS CGST Rate,TCS CGST Amount,TCS SGST Rate,TCS SGST Amount,Total TCS Deducted,Buyer Invoice ID,Buyer Invoice Date,Buyer Invoice Amount,Customer's Billing Pincode,Customer's Billing State,Customer's Delivery Pincode,Customer's Delivery State,Usual Price,Is Shopsy Order?,TDS Rate,TDS Amount,IRN,Business Name,Business GST Number,Beneficiary Name,IMEI
 Mandatory,,,,,,,,,,,,,Mandatory,,,,,,,,,,,Mandatory,,,,,,,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,Mandatory,,,,,,,,,,,,Mandatory,,,,,,,,,,,"""
 
 # --- HELPER FUNCTION FOR FILE UPLOAD ---
-# Cached function to read data from CSV or Excel file.
+# Cached function to read data from CSV or Excel file, skipping the "Mandatory" row.
 @st.cache_data
 def load_data(file):
-    """Reads data from CSV or Excel file."""
+    """Reads data from CSV or Excel file, skipping the second row (index 1)."""
     if file.name.endswith('.csv'):
-        # Reset file pointer to beginning for reading
         file.seek(0)
-        # Skip the second row which contains only "Mandatory" text if reading as DataFrame
+        # Read the first row as header, skip the second row (index 1)
         return pd.read_csv(file, skiprows=[1])
     else:
         file.seek(0)
+        # Read the first row as header, skip the second row (index 1)
         return pd.read_excel(file, skiprows=[1])
 
 
@@ -51,7 +50,7 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("v1.4.0 | E-Commerce Solutions (GST Ready)")
+st.sidebar.info("v1.5.0 | E-Commerce Solutions (GST Logic Updated)")
 
 
 # 3. Main Content Logic
@@ -310,7 +309,7 @@ elif "Reporting" in menu:
             if st.button("Generate Amazon GSTR-1 Data", key='gen_amazon'):
                 st.success("Amazon data processing initiated. Summary will appear here.")
         
-        # --- Flipkart Tab (UPDATED) ---
+        # --- Flipkart Tab (UPDATED LOGIC) ---
         with sub_tab2:
             st.header("Flipkart GSTR-1 Data")
             st.markdown("Download the template, fill with your sales data, and upload the file below.")
@@ -329,51 +328,64 @@ elif "Reporting" in menu:
             if st.button("Generate Flipkart GSTR-1 Data", key='gen_flipkart'):
                 if flipkart_sales_file:
                     try:
-                        # Load data, skipping the "Mandatory" row (row index 1)
                         df_flipkart = load_data(flipkart_sales_file)
-                        st.info("File uploaded successfully. Starting GST calculation logic...")
+                        st.info("File uploaded successfully. Applying GSTR-1 calculation logic...")
                         
-                        # --- START OF GST CALCULATION LOGIC ---
+                        # 1. Define required columns
+                        COL_TAXABLE_VALUE = 'Taxable Value (Final Invoice Amount -Taxes)' # Y
+                        COL_ITEM_QUANTITY = 'Item Quantity' # N
+                        COL_IGST = 'IGST Amount' # AF
+                        COL_CGST = 'CGST Amount' # AI
+                        COL_SGST = 'SGST Amount (Or UTGST as applicable)' # AK
+                        COL_BILLING_STATE = "Customer's Billing State" # AW
                         
-                        # Data Cleaning/Preprocessing (Example: Convert GST columns to numeric)
-                        tax_cols = ['Taxable Value (Final Invoice Amount -Taxes)', 'IGST Amount', 'CGST Amount', 'SGST Amount (Or UTGST as applicable)']
-                        for col in tax_cols:
-                            # Attempt to convert to numeric, coercing errors to NaN
-                            df_flipkart[col] = pd.to_numeric(df_flipkart[col], errors='coerce')
-                            
-                        df_flipkart.fillna(0, inplace=True)
+                        # List of columns to convert to numeric for calculation
+                        numeric_cols = [COL_TAXABLE_VALUE, COL_ITEM_QUANTITY, COL_IGST, COL_CGST, COL_SGST]
 
-                        # Determine B2C vs B2B based on 'Business GST Number'
-                        df_flipkart['Transaction_Type'] = df_flipkart['Business GST Number'].apply(
-                            lambda x: 'B2B' if pd.notna(x) and x not in ['NA', ''] else 'B2C'
+                        # 2. Data Cleaning/Preprocessing: Convert all calculation columns to numeric and handle NaN
+                        for col in numeric_cols:
+                            df_flipkart[col] = pd.to_numeric(df_flipkart[col], errors='coerce')
+                        df_flipkart.fillna(0, inplace=True)
+                        
+                        # 3. Conditional Quantity Sign: If Taxable Value is negative, Item Quantity must be negative.
+                        negative_tax_mask = df_flipkart[COL_TAXABLE_VALUE] < 0
+                        df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY] = (
+                            df_flipkart.loc[negative_tax_mask, COL_ITEM_QUANTITY] * -1
                         )
                         
-                        # Grouping for B2C Summary (Intra/Inter-state depends on Buyer/Seller state)
-                        b2c_summary = df_flipkart[df_flipkart['Transaction_Type'] == 'B2C'].groupby(
-                            'Customer\'s Delivery State'
-                        )[tax_cols].sum().reset_index()
-
-                        # Grouping for B2B Summary (grouped by GSTIN)
-                        b2b_summary = df_flipkart[df_flipkart['Transaction_Type'] == 'B2B'].groupby(
-                            'Business GST Number'
-                        )[tax_cols].sum().reset_index()
-
-
-                        st.subheader("Flipkart GSTR-1 Summary")
+                        # 4. Final Aggregation by Customer's Billing State (Col AW)
+                        final_gstr1_summary = df_flipkart.groupby(
+                            COL_BILLING_STATE
+                        ).agg(
+                            # Sum the four requested columns
+                            Taxable_Value_Total=(COL_TAXABLE_VALUE, 'sum'),
+                            IGST_Total=(COL_IGST, 'sum'),
+                            CGST_Total=(COL_CGST, 'sum'),
+                            SGST_UTGST_Total=(COL_SGST, 'sum'),
+                            
+                            # Also include the adjusted quantity for completeness
+                            Total_Net_Quantity=(COL_ITEM_QUANTITY, 'sum')
+                        ).reset_index()
                         
-                        st.markdown("#### B2C Summary by State")
-                        st.dataframe(b2c_summary, use_container_width=True)
+                        final_gstr1_summary.rename(columns={COL_BILLING_STATE: 'Customer Billing State'}, inplace=True)
 
-                        st.markdown("#### B2B Summary by Buyer GSTIN")
-                        st.dataframe(b2b_summary, use_container_width=True)
+                        st.success("✅ GSTR-1 Data Aggregation Complete! Summary created by Billing State.")
                         
-                        st.success("GSTR-1 data successfully summarized for B2C and B2B transactions.")
+                        st.subheader("Flipkart Consolidated GSTR-1 Summary")
+                        st.dataframe(final_gstr1_summary, use_container_width=True)
                         
-                        # --- END OF LOGIC ---
+                        # Download button for the resulting summary
+                        csv_output = final_gstr1_summary.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="⬇️ Download GSTR-1 Summary (CSV)",
+                            data=csv_output,
+                            file_name='flipkart_gstr1_summary.csv',
+                            mime='text/csv',
+                        )
                         
                     except Exception as e:
                         st.error(f"Error processing Flipkart file: {e}")
-                        st.warning("Please ensure your uploaded file strictly follows the format of the downloaded template.")
+                        st.warning("Please ensure your uploaded file strictly follows the format of the downloaded template and contains valid numeric data in the tax columns.")
                 else:
                     st.warning("Please upload the Flipkart Sales Data file to proceed.")
 
